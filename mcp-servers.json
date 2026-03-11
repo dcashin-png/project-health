@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "jira": {
+      "name": "jira",
+      "command": "/usr/local/bin/jmp",
+      "args": [],
+      "env": {}
+    },
+    "houston": {
+      "type": "http",
+      "name": "houston",
+      "url": "https://houston.tinyspeck.com/api/mcp"
+    },
+    "slack": {
+      "type": "http",
+      "name": "slack",
+      "url": "https://mcp.slack.com/mcp",
+      "oauth": {
+        "clientId": "188160004832.9210129962818",
+        "callbackPort": 3118
+      }
+    }
+  }
+}
