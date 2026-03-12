@@ -248,19 +248,26 @@ function assessHealth(
     issuesList.push(`${unassigned.length} in-progress issue(s) unassigned`);
   }
 
-  // Factor in Slack qualitative signals
+  // Health status is based solely on Slack channel sentiment
   const slackNegativeSignals = qualitative?.signals.filter(
     (s) => s.includes("Blocker") || s.includes("Timeline") || s.includes("Escalation")
   ).length || 0;
+  const slackPositiveSignals = qualitative?.signals.filter(
+    (s) => s.includes("Positive")
+  ).length || 0;
 
   let health: HealthStatus = "healthy";
-  const needsLeadership = blockers.length >= 2 || (blockers.length >= 1 && stale.length > 3) || slackNegativeSignals >= 3;
+  const needsLeadership = slackNegativeSignals >= 3;
 
-  if (needsLeadership) {
+  if (!qualitative || qualitative.channelMissing) {
+    health = "unknown";
+  } else if (needsLeadership) {
     health = "needs-help";
-  } else if (blockers.length >= 1 || risks.length > 0 || criticals.length >= 3 || slackNegativeSignals >= 2) {
+  } else if (slackNegativeSignals >= 2) {
     health = "at-risk";
-  } else if (children.length === 0) {
+  } else if (slackNegativeSignals >= 1 && slackPositiveSignals === 0) {
+    health = "at-risk";
+  } else if (qualitative.signals.length === 0 && qualitative.summary === "No recent activity in channel") {
     health = "unknown";
   }
 
