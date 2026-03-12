@@ -22,6 +22,30 @@ export interface QualitativeHealth {
 export type Phase = "planning" | "in-progress" | "review" | "launched" | "unknown";
 export type HealthStatus = "healthy" | "at-risk" | "needs-help" | "unknown";
 
+export interface HoustonExperimentInfo {
+  id: number;
+  name: string;
+  status: "draft" | "scheduled" | "active" | "paused" | "finished" | "archived";
+  toggleType: string;
+  owner: string;
+  summary: string;
+  groups: string[];
+  rolloutPercent: number | null;
+  tags: string[];
+  // Health
+  srmIssue?: boolean;
+  exposureCount?: number;
+  hasMetrics?: boolean;
+  // Results
+  metrics?: Array<{
+    metricName: string;
+    effectSize: number | null;
+    pValue: number | null;
+    isSignificant: boolean;
+    direction: "positive" | "negative" | "neutral";
+  }>;
+}
+
 export interface ProjectHealth {
   project: Project;
   phase: Phase;
@@ -32,6 +56,7 @@ export interface ProjectHealth {
   needsLeadership: boolean;
   summary: string;
   qualitativeHealth?: QualitativeHealth;
+  experiments?: HoustonExperimentInfo[];
   lastUpdated: string;
 }
 

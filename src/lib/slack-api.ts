@@ -35,6 +35,7 @@ async function callSlackMcp(toolName: string, args: Record<string, unknown>): Pr
       params: { name: toolName, arguments: args },
       id: Date.now(),
     }),
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!res.ok) {
@@ -155,7 +156,7 @@ export async function batchReadSlackChannels(
 
   if (unique.length === 0) return results;
 
-  const concurrency = 5;
+  const concurrency = 10;
   for (let i = 0; i < unique.length; i += concurrency) {
     const batch = unique.slice(i, i + concurrency);
     const batchResults = await Promise.all(

@@ -2,9 +2,10 @@
 
 import type { ProjectHealth } from "@/lib/types";
 import { HealthBadge, StatusBadge } from "./StatusBadge";
+import { ExperimentSection } from "./ExperimentBadge";
 
 export function ProjectCard({ data }: { data: ProjectHealth }) {
-  const { project, health, risks, issues, needsLeadership, summary, qualitativeHealth } = data;
+  const { project, health, risks, issues, needsLeadership, summary, qualitativeHealth, experiments } = data;
 
   return (
     <div
@@ -70,6 +71,11 @@ export function ProjectCard({ data }: { data: ProjectHealth }) {
             </ul>
           )}
         </div>
+      )}
+
+      {/* Houston Experiments */}
+      {experiments && experiments.length > 0 && (
+        <ExperimentSection experiments={experiments} />
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">

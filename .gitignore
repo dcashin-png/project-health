@@ -36,6 +36,7 @@ yarn-error.log*
 # oauth tokens
 .oauth-tokens/
 .slack-tokens.json
+.houston-tokens.json
 
 # vercel
 .vercel

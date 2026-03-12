@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAvailableServers } from "@/lib/mcp-client";
 import { searchIssues, searchAllIssues } from "@/lib/jira-api";
 import { isSlackConnected, batchReadSlackChannels as slackBatchRead } from "@/lib/slack-api";
-import type { Project, ProjectHealth, Phase, HealthStatus, QualitativeHealth } from "@/lib/types";
+import { isHoustonConnected, getHoustonDataForEpics, type ExperimentSummary as ExperimentSummaryData } from "@/lib/houston-api";
+import type { Project, ProjectHealth, Phase, HealthStatus, QualitativeHealth, HoustonExperimentInfo } from "@/lib/types";
 import type { JiraIssue } from "@/lib/jira-api";
 
 // Each epic from the filter = a "project" on the dashboard
@@ -312,24 +313,46 @@ export async function GET(request: NextRequest) {
     // 2. Fetch ALL child issues in batched queries
     const childrenByEpic = await fetchAllChildIssues(epicKeys);
 
-    // 3. If Slack token is available, batch-read all unique channels
-    let slackConnected = false;
-    let channelMessages = new Map<string, string[]>();
+    // 3 & 4. Fetch Slack and Houston data in parallel
+    const slackPromise = (async () => {
+      let connected = false;
+      let messages = new Map<string, string[]>();
+      try { connected = await isSlackConnected(); } catch { /* ignore */ }
+      if (connected) {
+        const channelNames = epics
+          .map((e) => e.project.slackChannel)
+          .filter((ch): ch is string => !!ch);
+        messages = await slackBatchRead(channelNames);
+      }
+      return { connected, messages };
+    })();
 
-    try {
-      slackConnected = await isSlackConnected();
-    } catch {
-      slackConnected = false;
-    }
+    const houstonPromise = (async () => {
+      let connected = false;
+      let data = new Map<string, ExperimentSummaryData[]>();
+      try { connected = await isHoustonConnected(); } catch { /* ignore */ }
+      if (connected) {
+        try {
+          const raw = await getHoustonDataForEpics(epicKeys);
+          for (const [key, summaries] of raw) {
+            data.set(key, summaries.map((s) => ({
+              experiment: s.experiment,
+              health: s.health,
+              primaryMetrics: s.primaryMetrics,
+            })));
+          }
+        } catch { /* Houston fetch failed — continue without it */ }
+      }
+      return { connected, data };
+    })();
 
-    if (slackConnected) {
-      const channelNames = epics
-        .map((e) => e.project.slackChannel)
-        .filter((ch): ch is string => !!ch);
-      channelMessages = await slackBatchRead(channelNames);
-    }
+    const [slackResult, houstonResult] = await Promise.all([slackPromise, houstonPromise]);
+    const slackConnected = slackResult.connected;
+    const channelMessages = slackResult.messages;
+    const houstonConnected = houstonResult.connected;
+    const houstonData = houstonResult.data;
 
-    // 4. Analyze health for each epic
+    // 5. Analyze health for each epic
     const healthData: ProjectHealth[] = epics.map(({ epic, project }) => {
       const children = childrenByEpic.get(epic.key) || [];
       const phase = detectPhase(epic, children);
@@ -358,6 +381,30 @@ export async function GET(request: NextRequest) {
       );
       const summary = buildSummary(children);
 
+      // Build Houston experiment info
+      const epicExperiments = houstonData.get(epic.key) || [];
+      const experiments: HoustonExperimentInfo[] = epicExperiments.map((s) => ({
+        id: s.experiment.id,
+        name: s.experiment.name,
+        status: s.experiment.status,
+        toggleType: s.experiment.toggleType,
+        owner: s.experiment.owner,
+        summary: s.experiment.summary,
+        groups: s.experiment.groups,
+        rolloutPercent: s.experiment.rolloutPercent,
+        tags: s.experiment.tags,
+        srmIssue: s.health?.srmIssue,
+        exposureCount: s.health?.exposureCount,
+        hasMetrics: s.health?.hasMetrics,
+        metrics: s.primaryMetrics.map((m) => ({
+          metricName: m.metricName,
+          effectSize: m.effectSize,
+          pValue: m.pValue,
+          isSignificant: m.isSignificant,
+          direction: m.direction,
+        })),
+      }));
+
       return {
         project,
         phase,
@@ -368,6 +415,7 @@ export async function GET(request: NextRequest) {
         needsLeadership,
         summary,
         qualitativeHealth,
+        experiments: experiments.length > 0 ? experiments : undefined,
         lastUpdated: new Date().toISOString(),
       };
     });
@@ -385,6 +433,7 @@ export async function GET(request: NextRequest) {
       lastRefreshed: new Date().toISOString(),
       connectedServers: servers,
       slackConnected,
+      houstonConnected,
       filter,
     });
   } catch (error) {

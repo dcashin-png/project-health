@@ -374,6 +374,20 @@ export function GanttChart({ projects }: GanttChartProps) {
                           title={p.project.status}
                         />
                       )}
+                      {/* Houston experiment status indicator */}
+                      {p.experiments && p.experiments.length > 0 && (() => {
+                        const exp = p.experiments[0];
+                        const statusIcon = exp.status === "active" ? "●" : exp.status === "finished" ? "✓" : exp.status === "paused" ? "⏸" : exp.status === "draft" ? "○" : "◐";
+                        const statusColor = exp.status === "active" ? "text-green-500" : exp.status === "finished" ? "text-purple-500" : exp.status === "paused" ? "text-yellow-500" : "text-gray-400";
+                        const rollout = exp.rolloutPercent !== null ? `${exp.rolloutPercent}%` : "";
+                        const srmFlag = exp.srmIssue ? " ⚠SRM" : "";
+                        return (
+                          <span className={`shrink-0 text-[10px] ${statusColor}`} title={`Houston: ${exp.name} — ${exp.status}${rollout ? ` @ ${rollout}` : ""}${srmFlag}`}>
+                            {statusIcon}{rollout && <span className="ml-0.5 text-gray-400">{rollout}</span>}
+                            {exp.srmIssue && <span className="text-red-500 ml-0.5">⚠</span>}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     <div className="relative flex-1" style={{ width: timelineWidth }}>
@@ -467,6 +481,18 @@ export function GanttChart({ projects }: GanttChartProps) {
             <div className="flex items-center gap-1">
               <div className="w-0.5 h-3 bg-red-500" />
               <span>Today</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-green-500">●</span>
+              <span>Houston active</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-purple-500">✓</span>
+              <span>Finished</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-red-500">⚠</span>
+              <span>SRM issue</span>
             </div>
           </div>
         </div>
