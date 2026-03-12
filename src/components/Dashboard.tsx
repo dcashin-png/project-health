@@ -5,6 +5,7 @@ import type { ProjectHealth } from "@/lib/types";
 import { ProjectCard } from "./ProjectCard";
 import { FilterPicker } from "./FilterPicker";
 import { GanttChart } from "./GanttChart";
+import { ShareToSlackButton } from "./ShareToSlack";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
 type ViewTab = "health" | "timeline";
@@ -87,7 +88,7 @@ export function Dashboard() {
           onFilterChange={handleFilterChange}
         />
 
-        {/* View tabs */}
+        {/* View tabs + Share button */}
         <div className="flex items-center gap-6 mb-6 border-b border-gray-200">
           {([
             { key: "health", label: "Health" },
@@ -105,6 +106,11 @@ export function Dashboard() {
               {tab.label}
             </button>
           ))}
+          {!loading && filtered.length > 0 && (
+            <div className="ml-auto pb-2">
+              <ShareToSlackButton projects={filtered} view={activeTab} />
+            </div>
+          )}
         </div>
 
         {/* Content */}

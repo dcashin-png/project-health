@@ -3,7 +3,6 @@
 import type { ProjectHealth } from "@/lib/types";
 import { HealthBadge, StatusBadge } from "./StatusBadge";
 import { ExperimentSection } from "./ExperimentBadge";
-import { ShareToSlackButton } from "./ShareToSlack";
 
 export function ProjectCard({ data }: { data: ProjectHealth }) {
   const { project, health, risks, issues, needsLeadership, summary, qualitativeHealth, experiments } = data;
@@ -39,7 +38,6 @@ export function ProjectCard({ data }: { data: ProjectHealth }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ShareToSlackButton data={data} />
           {project.status && <StatusBadge label={project.status} />}
           <HealthBadge status={health} />
         </div>
