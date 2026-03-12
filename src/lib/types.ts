@@ -5,6 +5,13 @@ export interface Project {
   jiraProject?: string;
   url?: string;
   status?: string;
+  slackChannel?: string | null;
+}
+
+export interface QualitativeHealth {
+  summary: string;
+  signals: string[];
+  channelMissing: boolean;
 }
 
 export type Phase = "planning" | "in-progress" | "review" | "launched" | "unknown";
@@ -19,6 +26,7 @@ export interface ProjectHealth {
   issues: string[];
   needsLeadership: boolean;
   summary: string;
+  qualitativeHealth?: QualitativeHealth;
   lastUpdated: string;
 }
 

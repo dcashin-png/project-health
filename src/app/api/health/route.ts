@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAvailableServers } from "@/lib/mcp-client";
 import { searchIssues, searchAllIssues } from "@/lib/jira-api";
-import type { Project, ProjectHealth, Phase, HealthStatus } from "@/lib/types";
+import { isSlackConnected, batchReadSlackChannels as slackBatchRead } from "@/lib/slack-api";
+import type { Project, ProjectHealth, Phase, HealthStatus, QualitativeHealth } from "@/lib/types";
 import type { JiraIssue } from "@/lib/jira-api";
 
 // Each epic from the filter = a "project" on the dashboard
@@ -14,13 +15,14 @@ async function fetchEpicsFromFilter(filter: string): Promise<
 
   const result = await searchIssues(
     jql,
-    ["summary", "status", "assignee", "priority", "project", "labels", "customfield_19103"],
+    ["summary", "status", "assignee", "priority", "project", "labels", "customfield_19103", "customfield_10607"],
     200
   );
 
   return result.issues.map((epic) => {
-    const experimentStatus = (epic.fields as Record<string, unknown>).customfield_19103 as
-      | { value: string } | null | undefined;
+    const fields = epic.fields as Record<string, unknown>;
+    const experimentStatus = fields.customfield_19103 as { value: string } | null | undefined;
+    const channel = (fields.customfield_10607 as string | null)?.trim() || null;
 
     return {
       epic,
@@ -31,6 +33,7 @@ async function fetchEpicsFromFilter(filter: string): Promise<
         jiraProject: epic.fields.project?.name,
         url: `https://jira.tinyspeck.com/browse/${epic.key}`,
         status: experimentStatus?.value || epic.fields.status.name,
+        slackChannel: channel,
       },
     };
   });
@@ -47,7 +50,6 @@ async function fetchAllChildIssues(
 
   if (epicKeys.length === 0) return childrenByEpic;
 
-  // Query in batches of 50 epic keys (JQL IN clause limit), run batches in parallel
   const batchSize = 50;
   const batches: string[][] = [];
   for (let i = 0; i < epicKeys.length; i += batchSize) {
@@ -79,6 +81,83 @@ async function fetchAllChildIssues(
   }
 
   return childrenByEpic;
+}
+
+
+function analyzeSlackMessages(messages: string[]): QualitativeHealth {
+  if (messages.length === 0) {
+    return {
+      summary: "No recent activity in channel",
+      signals: [],
+      channelMissing: false,
+    };
+  }
+
+  const signals: string[] = [];
+
+  // Risk / blocker signals
+  const riskKeywords = ["blocked", "blocker", "blocking", "stuck"];
+  const riskMessages = messages.filter((m) =>
+    riskKeywords.some((kw) => m.toLowerCase().includes(kw))
+  );
+  if (riskMessages.length > 0) {
+    signals.push(`Blocker/blocked mentioned ${riskMessages.length}x`);
+  }
+
+  // Delay / slip signals
+  const delayKeywords = ["slip", "delay", "pushed", "postpone", "behind schedule", "won't make"];
+  const delayMessages = messages.filter((m) =>
+    delayKeywords.some((kw) => m.toLowerCase().includes(kw))
+  );
+  if (delayMessages.length > 0) {
+    signals.push(`Timeline concerns mentioned ${delayMessages.length}x`);
+  }
+
+  // Escalation signals
+  const escalationKeywords = ["escalat", "help needed", "need help", "urgent", "critical"];
+  const escalationMessages = messages.filter((m) =>
+    escalationKeywords.some((kw) => m.toLowerCase().includes(kw))
+  );
+  if (escalationMessages.length > 0) {
+    signals.push(`Escalation/help signals ${escalationMessages.length}x`);
+  }
+
+  // Positive signals
+  const positiveKeywords = ["shipped", "launched", "completed", "merged", "looks good", "on track"];
+  const positiveMessages = messages.filter((m) =>
+    positiveKeywords.some((kw) => m.toLowerCase().includes(kw))
+  );
+  if (positiveMessages.length > 0) {
+    signals.push(`Positive progress signals ${positiveMessages.length}x`);
+  }
+
+  // Decision signals
+  const decisionKeywords = ["decided", "decision", "agreed", "consensus", "going with", "let's go with"];
+  const decisionMessages = messages.filter((m) =>
+    decisionKeywords.some((kw) => m.toLowerCase().includes(kw))
+  );
+  if (decisionMessages.length > 0) {
+    signals.push(`Decisions made ${decisionMessages.length}x`);
+  }
+
+  // Build summary
+  const totalNegative = riskMessages.length + delayMessages.length + escalationMessages.length;
+  const totalPositive = positiveMessages.length;
+  let summary: string;
+
+  if (totalNegative > 3) {
+    summary = "Multiple risk signals detected in recent channel activity";
+  } else if (totalNegative > 0 && totalPositive === 0) {
+    summary = "Some concerns raised in channel, no positive signals";
+  } else if (totalPositive > totalNegative) {
+    summary = "Positive momentum in channel activity";
+  } else if (messages.length < 5) {
+    summary = "Low channel activity recently";
+  } else {
+    summary = "Normal channel activity";
+  }
+
+  return { summary, signals, channelMissing: false };
 }
 
 function detectPhase(epic: JiraIssue, children: JiraIssue[]): Phase {
@@ -119,7 +198,8 @@ function categorizeStatus(statusName: string): string {
 
 function assessHealth(
   epic: JiraIssue,
-  children: JiraIssue[]
+  children: JiraIssue[],
+  qualitative?: QualitativeHealth
 ): { health: HealthStatus; risks: string[]; issuesList: string[]; needsLeadership: boolean } {
   const risks: string[] = [];
   const issuesList: string[] = [];
@@ -168,12 +248,17 @@ function assessHealth(
     issuesList.push(`${unassigned.length} in-progress issue(s) unassigned`);
   }
 
+  // Factor in Slack qualitative signals
+  const slackNegativeSignals = qualitative?.signals.filter(
+    (s) => s.includes("Blocker") || s.includes("Timeline") || s.includes("Escalation")
+  ).length || 0;
+
   let health: HealthStatus = "healthy";
-  const needsLeadership = blockers.length >= 2 || (blockers.length >= 1 && stale.length > 3);
+  const needsLeadership = blockers.length >= 2 || (blockers.length >= 1 && stale.length > 3) || slackNegativeSignals >= 3;
 
   if (needsLeadership) {
     health = "needs-help";
-  } else if (blockers.length >= 1 || risks.length > 0 || criticals.length >= 3) {
+  } else if (blockers.length >= 1 || risks.length > 0 || criticals.length >= 3 || slackNegativeSignals >= 2) {
     health = "at-risk";
   } else if (children.length === 0) {
     health = "unknown";
@@ -210,14 +295,53 @@ export async function GET(request: NextRequest) {
     const epics = await fetchEpicsFromFilter(filter);
     const epicKeys = epics.map((e) => e.epic.key);
 
-    // 2. Fetch ALL child issues in batched queries (instead of N+1)
+    // 2. Fetch ALL child issues in batched queries
     const childrenByEpic = await fetchAllChildIssues(epicKeys);
 
-    // 3. Analyze health for each epic using pre-fetched children
+    // 3. If Slack token is available, batch-read all unique channels
+    let slackConnected = false;
+    let channelMessages = new Map<string, string[]>();
+
+    try {
+      slackConnected = await isSlackConnected();
+    } catch {
+      slackConnected = false;
+    }
+
+    if (slackConnected) {
+      const channelNames = epics
+        .map((e) => e.project.slackChannel)
+        .filter((ch): ch is string => !!ch);
+      channelMessages = await slackBatchRead(channelNames);
+    }
+
+    // 4. Analyze health for each epic
     const healthData: ProjectHealth[] = epics.map(({ epic, project }) => {
       const children = childrenByEpic.get(epic.key) || [];
       const phase = detectPhase(epic, children);
-      const { health, risks, issuesList, needsLeadership } = assessHealth(epic, children);
+
+      // Build qualitative health from Slack
+      let qualitativeHealth: QualitativeHealth;
+      if (!project.slackChannel) {
+        qualitativeHealth = {
+          summary: "No Slack channel specified on epic",
+          signals: [],
+          channelMissing: true,
+        };
+      } else if (!slackConnected) {
+        qualitativeHealth = {
+          summary: "Slack not connected",
+          signals: [],
+          channelMissing: false,
+        };
+      } else {
+        const messages = channelMessages.get(project.slackChannel) || [];
+        qualitativeHealth = analyzeSlackMessages(messages);
+      }
+
+      const { health, risks, issuesList, needsLeadership } = assessHealth(
+        epic, children, qualitativeHealth
+      );
       const summary = buildSummary(children);
 
       return {
@@ -229,6 +353,7 @@ export async function GET(request: NextRequest) {
         issues: issuesList,
         needsLeadership,
         summary,
+        qualitativeHealth,
         lastUpdated: new Date().toISOString(),
       };
     });
@@ -245,6 +370,7 @@ export async function GET(request: NextRequest) {
       projects: healthData,
       lastRefreshed: new Date().toISOString(),
       connectedServers: servers,
+      slackConnected,
       filter,
     });
   } catch (error) {
