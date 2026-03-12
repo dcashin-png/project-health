@@ -20,7 +20,7 @@ async function getToken(): Promise<string> {
 }
 
 // Call a tool on the Slack MCP server via JSON-RPC over HTTP
-async function callSlackMcp(toolName: string, args: Record<string, unknown>): Promise<string> {
+export async function callSlackMcp(toolName: string, args: Record<string, unknown>): Promise<string> {
   const token = await getToken();
 
   const res = await fetch(MCP_URL, {
@@ -67,7 +67,7 @@ export async function isSlackConnected(): Promise<boolean> {
 }
 
 // Find channel ID by searching the MCP search_channels response
-function parseChannelId(searchText: string, targetName: string): string | null {
+export function parseChannelId(searchText: string, targetName: string): string | null {
   // The response is JSON with a "results" field containing markdown
   let markdown: string;
   try {
@@ -90,6 +90,28 @@ function parseChannelId(searchText: string, targetName: string): string | null {
   // Fall back to first result
   const firstId = markdown.match(/archives\/([A-Z0-9]+)/);
   return firstId?.[1] || null;
+}
+
+// Parse all channels from a search response
+export function parseChannelResults(searchText: string): Array<{ id: string; name: string }> {
+  let markdown: string;
+  try {
+    const parsed = JSON.parse(searchText);
+    markdown = parsed.results || searchText;
+  } catch {
+    markdown = searchText;
+  }
+
+  const channels: Array<{ id: string; name: string }> = [];
+  const blocks = markdown.split(/### Result \d+ of \d+/);
+  for (const block of blocks) {
+    const nameMatch = block.match(/Name: #([^\n]+)/);
+    const idMatch = block.match(/archives\/([A-Z0-9]+)/);
+    if (nameMatch && idMatch) {
+      channels.push({ id: idMatch[1], name: nameMatch[1].trim() });
+    }
+  }
+  return channels;
 }
 
 // Parse messages from the MCP read_channel response
