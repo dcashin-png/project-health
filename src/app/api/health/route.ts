@@ -15,7 +15,7 @@ async function fetchEpicsFromFilter(filter: string): Promise<
 
   const result = await searchIssues(
     jql,
-    ["summary", "status", "assignee", "priority", "project", "labels", "customfield_19103", "customfield_10607"],
+    ["summary", "status", "assignee", "priority", "project", "labels", "customfield_19103", "customfield_10607", "customfield_18803", "customfield_14505", "customfield_10611", "customfield_18401", "customfield_10024"],
     200
   );
 
@@ -23,6 +23,8 @@ async function fetchEpicsFromFilter(filter: string): Promise<
     const fields = epic.fields as Record<string, unknown>;
     const experimentStatus = fields.customfield_19103 as { value: string } | null | undefined;
     const channel = (fields.customfield_10607 as string | null)?.trim() || null;
+    const growthSquad = fields.customfield_18401 as { value: string } | null | undefined;
+    const productTeams = fields.customfield_10024 as Array<{ value: string }> | null | undefined;
 
     return {
       epic,
@@ -34,6 +36,11 @@ async function fetchEpicsFromFilter(filter: string): Promise<
         url: `https://jira.tinyspeck.com/browse/${epic.key}`,
         status: experimentStatus?.value || epic.fields.status.name,
         slackChannel: channel,
+        experimentStartDate: (fields.customfield_18803 as string | null) || null,
+        experimentEndDate: (fields.customfield_14505 as string | null) || null,
+        launchStartDate: (fields.customfield_10611 as string | null) || null,
+        growthSquad: growthSquad?.value || null,
+        productTeams: productTeams?.map((t) => t.value) || [],
       },
     };
   });

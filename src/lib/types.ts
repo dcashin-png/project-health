@@ -6,6 +6,11 @@ export interface Project {
   url?: string;
   status?: string;
   slackChannel?: string | null;
+  experimentStartDate?: string | null;
+  experimentEndDate?: string | null;
+  launchStartDate?: string | null;
+  growthSquad?: string | null;
+  productTeams?: string[];
 }
 
 export interface QualitativeHealth {

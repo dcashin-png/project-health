@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProjectHealth } from "@/lib/types";
 import { ProjectCard } from "./ProjectCard";
 import { FilterPicker } from "./FilterPicker";
+import { GanttChart } from "./GanttChart";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
+type ViewTab = "health" | "timeline";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -14,20 +16,13 @@ export function Dashboard() {
   const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connectedServers, setConnectedServers] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<ViewTab>("health");
   const [jiraFilter, setJiraFilter] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(FILTER_STORAGE_KEY) || "";
     }
     return "";
   });
-
-  useEffect(() => {
-    fetch("/api/health-check")
-      .then((r) => r.json())
-      .then((data) => setConnectedServers(data.configuredServers || []))
-      .catch(() => {});
-  }, []);
 
   const loadHealth = useCallback((filter: string) => {
     setLoading(true);
@@ -80,44 +75,34 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Project Health Dashboard</h1>
-          <div className="flex items-center gap-3">
-            {connectedServers.includes("slack") ? (
-              <span className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">Slack connected</span>
-            ) : (
-              <a
-                href="/api/auth/slack"
-                className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
-              >
-                Connect Slack
-              </a>
-            )}
-          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-[1400px] mx-auto px-6 py-6">
         {/* JIRA Filter picker */}
         <FilterPicker
           currentFilter={jiraFilter}
           onFilterChange={handleFilterChange}
         />
 
-        {/* Health filter tabs */}
-        <div className="flex gap-2 mb-6">
-          {(["all", "needs-help", "at-risk", "healthy"] as HealthFilter[]).map((f) => (
+        {/* View tabs */}
+        <div className="flex items-center gap-6 mb-6 border-b border-gray-200">
+          {([
+            { key: "health", label: "Health" },
+            { key: "timeline", label: "Timeline" },
+          ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
-              key={f}
-              onClick={() => setHealthFilter(f)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                healthFilter === f
-                  ? "bg-gray-900 text-white"
-                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
+                activeTab === tab.key
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
               }`}
             >
-              {f === "all" ? "All" : f === "needs-help" ? "Needs Help" : f === "at-risk" ? "At Risk" : "Healthy"}
-              <span className="ml-1.5 text-xs opacity-75">({counts[f]})</span>
+              {tab.label}
             </button>
           ))}
         </div>
@@ -141,19 +126,45 @@ export function Dashboard() {
           </div>
         )}
 
-        {jiraFilter && !loading && !error && filtered.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            {projects.length === 0
-              ? `No epics found for filter "${jiraFilter}". Try a different JIRA filter.`
-              : "No epics match the current health filter."}
-          </div>
+        {jiraFilter && !loading && !error && activeTab === "health" && (
+          <>
+            {/* Health filter tabs */}
+            <div className="flex gap-2 mb-6">
+              {(["all", "needs-help", "at-risk", "healthy"] as HealthFilter[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setHealthFilter(f)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    healthFilter === f
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "needs-help" ? "Needs Help" : f === "at-risk" ? "At Risk" : "Healthy"}
+                  <span className="ml-1.5 text-xs opacity-75">({counts[f]})</span>
+                </button>
+              ))}
+            </div>
+
+            {filtered.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                {projects.length === 0
+                  ? `No epics found for filter "${jiraFilter}". Try a different JIRA filter.`
+                  : "No epics match the current health filter."}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filtered.map((p) => (
+                  <ProjectCard key={p.project.key} data={p} />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        <div className="space-y-4">
-          {filtered.map((p) => (
-            <ProjectCard key={p.project.key} data={p} />
-          ))}
-        </div>
+        {jiraFilter && !loading && !error && activeTab === "timeline" && (
+          <GanttChart projects={projects} />
+        )}
       </main>
     </div>
   );
