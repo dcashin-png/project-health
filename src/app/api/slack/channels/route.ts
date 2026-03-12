@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const searchText = await callSlackMcp("slack_search_channels", {
       query,
       limit: 10,
+      channel_types: "public_channel,private_channel",
     });
     const channels = parseChannelResults(searchText);
     return NextResponse.json({ channels });
