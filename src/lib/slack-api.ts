@@ -114,8 +114,15 @@ export function parseChannelResults(searchText: string): Array<{ id: string; nam
   return channels;
 }
 
-// Parse messages from the MCP read_channel response
-function parseMessages(readText: string): string[] {
+// Parsed message with metadata for thread detection
+interface ParsedMessage {
+  text: string;
+  ts: string | null;
+  threadReplies: number;
+}
+
+// Parse messages from the MCP read_channel response, extracting thread metadata
+function parseMessages(readText: string): ParsedMessage[] {
   let markdown: string;
   try {
     const parsed = JSON.parse(readText);
@@ -124,22 +131,63 @@ function parseMessages(readText: string): string[] {
     markdown = readText;
   }
 
-  // Messages are separated by "=== Message from ... ==="
   const blocks = markdown.split(/=== Message from .+? ===/);
+  const messages: ParsedMessage[] = [];
+
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+
+    // Extract message TS
+    const tsMatch = trimmed.match(/Message TS:\s*([0-9.]+)/);
+    const ts = tsMatch ? tsMatch[1] : null;
+
+    // Extract thread reply count: "Thread: 9 replies"
+    const threadMatch = trimmed.match(/Thread:\s*(\d+)\s*repl/);
+    const threadReplies = threadMatch ? parseInt(threadMatch[1], 10) : 0;
+
+    // Extract message text (skip metadata lines)
+    const lines = trimmed.split("\n").filter(
+      (l) =>
+        l.trim() &&
+        !l.startsWith("Message TS:") &&
+        !l.startsWith("Reactions:") &&
+        !l.startsWith("Thread:") &&
+        !l.startsWith("Channel:")
+    );
+
+    const text = lines.join(" ").trim();
+    if (text) messages.push({ text, ts, threadReplies });
+  }
+
+  return messages;
+}
+
+// Parse thread reply messages from slack_read_thread response
+function parseThreadMessages(readText: string): string[] {
+  let markdown: string;
+  try {
+    const parsed = JSON.parse(readText);
+    markdown = parsed.messages || readText;
+  } catch {
+    markdown = readText;
+  }
+
+  const blocks = markdown.split(/=== (?:Message|Reply) from .+? ===/);
   const messages: string[] = [];
 
   for (const block of blocks) {
     const trimmed = block.trim();
     if (!trimmed) continue;
 
-    // Skip metadata lines (Message TS, Reactions, Thread replies)
     const lines = trimmed.split("\n").filter(
       (l) =>
         l.trim() &&
         !l.startsWith("Message TS:") &&
         !l.startsWith("Reactions:") &&
-        !l.startsWith("Thread replies:") &&
-        !l.startsWith("Channel:")
+        !l.startsWith("Thread:") &&
+        !l.startsWith("Channel:") &&
+        !l.startsWith("Reply TS:")
     );
 
     const text = lines.join(" ").trim();
@@ -149,7 +197,7 @@ function parseMessages(readText: string): string[] {
   return messages;
 }
 
-// Read recent messages from a Slack channel via MCP
+// Read recent messages from a Slack channel via MCP, including threads with 3+ replies
 async function readSlackChannel(channelName: string): Promise<string[]> {
   const name = channelName.replace(/^#/, "");
 
@@ -163,7 +211,36 @@ async function readSlackChannel(channelName: string): Promise<string[]> {
       limit: 30,
     });
 
-    return parseMessages(msgText);
+    const parsed = parseMessages(msgText);
+    const allMessages = parsed.map((m) => m.text);
+
+    // Read threads with 3+ replies (cap at 3 threads to limit API calls)
+    const threadsToRead = parsed
+      .filter((m) => m.threadReplies >= 3 && m.ts)
+      .slice(0, 3);
+
+    if (threadsToRead.length > 0) {
+      const threadResults = await Promise.all(
+        threadsToRead.map(async (m) => {
+          try {
+            const threadText = await callSlackMcp("slack_read_thread", {
+              channel_id: channelId,
+              message_ts: m.ts,
+              limit: 20,
+            });
+            return parseThreadMessages(threadText);
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      for (const threadMsgs of threadResults) {
+        allMessages.push(...threadMsgs);
+      }
+    }
+
+    return allMessages;
   } catch {
     return [];
   }
