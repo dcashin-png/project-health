@@ -78,3 +78,42 @@ export interface CleanupExperiment {
   productManager: { name: string; displayName: string } | null;
   growthSquad: string | null;
 }
+
+export interface AcvFilters {
+  attributions?: string[];
+  segments?: string[];
+  businessLines?: string[];
+  productLines?: string[];
+  regions?: string[];
+  quarters?: string[];
+  snapshotDateStart?: string;
+  snapshotDateEnd?: string;
+}
+
+export interface AcvFilterOptions {
+  attributions: string[];
+  segments: string[];
+  businessLines: string[];
+  productLines: string[];
+  regions: string[];
+  quarters: string[];
+  snapshotDateRange: { min: string; max: string };
+  latestDs: string;
+}
+
+export interface AcvRow {
+  snapshotDate: string;
+  attribution: string;
+  segment: string;
+  businessLine: string;
+  productLine: string;
+  region: string;
+  quarter: string;
+  acv: number;
+}
+
+export interface AcvDataResult {
+  rows: AcvRow[];
+  totalAcv: number;
+  latestDs: string;
+}

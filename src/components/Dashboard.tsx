@@ -8,9 +8,10 @@ import { GanttChart } from "./GanttChart";
 import { ShareToSlackButton } from "./ShareToSlack";
 import { ExperimentCleanup } from "./ExperimentCleanup";
 import { RoadmapSync } from "./RoadmapSync";
+import { AcvDashboard } from "./AcvDashboard";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "roadmap";
+type ViewTab = "health" | "timeline" | "cleanup" | "roadmap" | "acv";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -97,6 +98,7 @@ export function Dashboard() {
             { key: "timeline", label: "Timeline" },
             { key: "cleanup", label: "Experiment Cleanup" },
             { key: "roadmap", label: "Roadmap Sync" },
+            { key: "acv", label: "ACV" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -110,7 +112,7 @@ export function Dashboard() {
               {tab.label}
             </button>
           ))}
-          {!loading && filtered.length > 0 && (
+          {!loading && filtered.length > 0 && (activeTab === "health" || activeTab === "timeline") && (
             <div className="ml-auto pb-2">
               <ShareToSlackButton projects={filtered} view={activeTab} />
             </div>
@@ -182,6 +184,10 @@ export function Dashboard() {
 
         {activeTab === "roadmap" && (
           <RoadmapSync />
+        )}
+
+        {activeTab === "acv" && (
+          <AcvDashboard />
         )}
       </main>
     </div>
