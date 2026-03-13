@@ -3,7 +3,7 @@ import { callSlackMcp } from "@/lib/slack-api";
 
 export async function POST(request: NextRequest) {
   try {
-    const { channelId, message } = await request.json();
+    const { channelId, message, thread_ts } = await request.json();
 
     if (!channelId || !message) {
       return NextResponse.json(
@@ -19,10 +19,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await callSlackMcp("slack_send_message", {
+    const args: Record<string, unknown> = {
       channel_id: channelId,
       message,
-    });
+    };
+    if (thread_ts) {
+      args.thread_ts = thread_ts;
+    }
+
+    const result = await callSlackMcp("slack_send_message", args);
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {

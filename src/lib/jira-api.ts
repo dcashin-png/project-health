@@ -111,3 +111,71 @@ export async function getFilter(filterId: string): Promise<JiraFilter> {
 export async function getFavouriteFilters(): Promise<JiraFilter[]> {
   return jiraFetch<JiraFilter[]>(`/rest/api/2/filter/favourite`);
 }
+
+export interface JiraCreateResult {
+  id: string;
+  key: string;
+  self: string;
+}
+
+export async function createIssue(
+  fields: Record<string, unknown>
+): Promise<JiraCreateResult> {
+  const body = JSON.stringify({ fields });
+  const { stdout } = await execFileAsync(
+    "slack-uberproxy-curl",
+    [
+      "-s",
+      "-X", "POST",
+      "-H", "Content-Type: application/json",
+      "-d", body,
+      `${JIRA_BASE}/rest/api/2/issue`,
+    ],
+    { timeout: 30000 }
+  );
+
+  const result = JSON.parse(stdout);
+  if (result.errors || result.errorMessages) {
+    const msgs = result.errorMessages?.join(", ") || JSON.stringify(result.errors);
+    throw new Error(`Jira create failed: ${msgs}`);
+  }
+  return result as JiraCreateResult;
+}
+
+export async function updateIssueFields(
+  issueKey: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const body = JSON.stringify({ fields });
+  const { stdout, stderr } = await execFileAsync(
+    "slack-uberproxy-curl",
+    [
+      "-s",
+      "-X", "PUT",
+      "-H", "Content-Type: application/json",
+      "-d", body,
+      "-w", "\n%{http_code}",
+      `${JIRA_BASE}/rest/api/2/issue/${issueKey}`,
+    ],
+    { timeout: 30000 }
+  );
+
+  // Jira returns 204 No Content on success (empty body), so parse the status code
+  const lines = stdout.trim().split("\n");
+  const statusCode = parseInt(lines[lines.length - 1], 10);
+  if (statusCode >= 400) {
+    const responseBody = lines.slice(0, -1).join("\n");
+    let message = `Jira returned ${statusCode}`;
+    try {
+      const parsed = JSON.parse(responseBody);
+      if (parsed.errors) message += `: ${JSON.stringify(parsed.errors)}`;
+      if (parsed.errorMessages?.length) message += `: ${parsed.errorMessages.join(", ")}`;
+    } catch {
+      if (responseBody) message += `: ${responseBody}`;
+    }
+    throw new Error(message);
+  }
+  if (stderr && stderr.includes("error")) {
+    throw new Error(`Jira update failed: ${stderr}`);
+  }
+}

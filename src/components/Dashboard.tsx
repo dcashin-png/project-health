@@ -6,9 +6,11 @@ import { ProjectCard } from "./ProjectCard";
 import { FilterPicker } from "./FilterPicker";
 import { GanttChart } from "./GanttChart";
 import { ShareToSlackButton } from "./ShareToSlack";
+import { ExperimentCleanup } from "./ExperimentCleanup";
+import { RoadmapSync } from "./RoadmapSync";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline";
+type ViewTab = "health" | "timeline" | "cleanup" | "roadmap";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -93,6 +95,8 @@ export function Dashboard() {
           {([
             { key: "health", label: "Health" },
             { key: "timeline", label: "Timeline" },
+            { key: "cleanup", label: "Experiment Cleanup" },
+            { key: "roadmap", label: "Roadmap Sync" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -170,6 +174,14 @@ export function Dashboard() {
 
         {jiraFilter && !loading && !error && activeTab === "timeline" && (
           <GanttChart projects={projects} />
+        )}
+
+        {activeTab === "cleanup" && (
+          <ExperimentCleanup />
+        )}
+
+        {activeTab === "roadmap" && (
+          <RoadmapSync />
         )}
       </main>
     </div>

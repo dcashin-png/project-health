@@ -64,3 +64,17 @@ export interface DashboardData {
   projects: ProjectHealth[];
   lastRefreshed: string;
 }
+
+export interface CleanupExperiment {
+  key: string;
+  summary: string;
+  url: string;
+  status: string;
+  experimentStatus: string;
+  experimentStartDate: string | null;
+  experimentEndDate: string | null;
+  assignee: string | null;
+  experimentDri: Array<{ name: string; displayName: string }>;
+  productManager: { name: string; displayName: string } | null;
+  growthSquad: string | null;
+}
