@@ -426,8 +426,33 @@ export function ExperimentDigest() {
     }
   };
 
+  const [driError, setDriError] = useState<string | null>(null);
+
   const handlePreview = async (mode: "weekly" | "monthly") => {
     await lookupUsers(experiments);
+    setDriError(null);
+
+    // Check that all selected experiments have a resolved DRI
+    const weeklySections: SectionKey[] = ["launched", "gad", "launching", "ending"];
+    const monthlySections: SectionKey[] = ["roadmap", "roadmapGad"];
+    const sectionsToCheck = mode === "weekly" ? weeklySections : monthlySections;
+
+    const missing: string[] = [];
+    for (const sKey of sectionsToCheck) {
+      for (const exp of sections[sKey]) {
+        if (!selections[sKey].has(exp.key)) continue;
+        const driName = driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "";
+        if (!driName || !userMap[driName]) {
+          missing.push(`${exp.key}: ${exp.summary}`);
+        }
+      }
+    }
+
+    if (missing.length > 0) {
+      setDriError(`Select a DRI for: ${missing.join(", ")}`);
+      return;
+    }
+
     setPreviewMode(mode);
     setSent(false);
     setSendError(null);
@@ -701,6 +726,12 @@ export function ExperimentDigest() {
           </button>
         </div>
       </div>
+
+      {driError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+          {driError}
+        </div>
+      )}
 
       {/* Sections */}
       {dates && (
