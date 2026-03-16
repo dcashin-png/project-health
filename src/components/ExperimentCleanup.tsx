@@ -212,6 +212,13 @@ export function ExperimentCleanup() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Auto-lookup users when experiments load
+  useEffect(() => {
+    if (experiments.length > 0) {
+      lookupUsers(experiments);
+    }
+  }, [experiments]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);

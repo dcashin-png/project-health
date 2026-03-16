@@ -370,12 +370,12 @@ export function ExperimentDigest() {
   };
 
   // Slack user lookup
-  const lookupUsers = useCallback(async () => {
+  const lookupUsers = useCallback(async (exps: DigestExperiment[]) => {
     const toLookup: { name: string; email: string }[] = [];
     const seen = new Set<string>();
-    for (const exp of experiments) {
+    for (const exp of exps) {
       const name = driOverrides[exp.key] || exp.experimentDri[0]?.displayName;
-      if (name && !userMap[name] && !seen.has(name)) {
+      if (name && !seen.has(name)) {
         seen.add(name);
         const email = exp.experimentDri[0]?.email || "";
         toLookup.push({ name, email });
@@ -409,16 +409,14 @@ export function ExperimentDigest() {
     } finally {
       setLookingUpUsers(false);
     }
-  }, [experiments, driOverrides, userMap]);
+  }, [driOverrides]);
 
   // Auto-lookup users when experiments load
-  const hasLookedUp = useRef(false);
   useEffect(() => {
-    if (experiments.length > 0 && !hasLookedUp.current) {
-      hasLookedUp.current = true;
-      lookupUsers();
+    if (experiments.length > 0) {
+      lookupUsers(experiments);
     }
-  }, [experiments, lookupUsers]);
+  }, [experiments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectSlackUser = (driName: string, slackId: string) => {
     const candidates = candidateMap[driName] || [];
@@ -429,7 +427,7 @@ export function ExperimentDigest() {
   };
 
   const handlePreview = async (mode: "weekly" | "monthly") => {
-    await lookupUsers();
+    await lookupUsers(experiments);
     setPreviewMode(mode);
     setSent(false);
     setSendError(null);
