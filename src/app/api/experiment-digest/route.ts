@@ -75,7 +75,7 @@ export async function GET() {
     const experiments: DigestExperiment[] = issues.map((issue) => {
       const f = issue.fields as Record<string, unknown>;
       const driField = f.customfield_18500 as
-        | Array<{ name?: string; displayName?: string }>
+        | Array<{ name?: string; displayName?: string; emailAddress?: string }>
         | null;
       const squadField = f.customfield_18401 as { value?: string } | null;
       const categoryField = f.customfield_18801 as { value?: string } | null;
@@ -95,6 +95,7 @@ export async function GET() {
         experimentDri: (driField || []).map((d) => ({
           name: d.name || "",
           displayName: d.displayName || d.name || "",
+          email: d.emailAddress || null,
         })),
         productCategory: categoryField?.value || null,
         growthSquad: squadField?.value || null,

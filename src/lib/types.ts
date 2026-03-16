@@ -74,8 +74,8 @@ export interface CleanupExperiment {
   experimentStartDate: string | null;
   experimentEndDate: string | null;
   assignee: string | null;
-  experimentDri: Array<{ name: string; displayName: string }>;
-  productManager: { name: string; displayName: string } | null;
+  experimentDri: Array<{ name: string; displayName: string; email: string | null }>;
+  productManager: { name: string; displayName: string; email: string | null } | null;
   growthSquad: string | null;
   productCategory: string | null;
 }
@@ -92,7 +92,7 @@ export interface DigestExperiment {
   expectedLaunchStartDate: string | null;
   estimatedAcv: number | null;
   actualAcv: number | null;
-  experimentDri: Array<{ name: string; displayName: string }>;
+  experimentDri: Array<{ name: string; displayName: string; email: string | null }>;
   productCategory: string | null;
   growthSquad: string | null;
 }

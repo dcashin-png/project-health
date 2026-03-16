@@ -31,10 +31,10 @@ export async function GET() {
     const experiments: CleanupExperiment[] = issues.map((issue) => {
       const f = issue.fields as Record<string, unknown>;
       const driField = f.customfield_18500 as
-        | Array<{ name?: string; displayName?: string }>
+        | Array<{ name?: string; displayName?: string; emailAddress?: string }>
         | null;
       const pmField = f.customfield_10606 as
-        | { name?: string; displayName?: string }
+        | { name?: string; displayName?: string; emailAddress?: string }
         | null;
       const squadField = f.customfield_18401 as { value?: string } | null;
       const productCategoryField = f.customfield_18801 as { value?: string } | null;
@@ -51,9 +51,10 @@ export async function GET() {
         experimentDri: (driField || []).map((d) => ({
           name: d.name || "",
           displayName: d.displayName || d.name || "",
+          email: d.emailAddress || null,
         })),
         productManager: pmField
-          ? { name: pmField.name || "", displayName: pmField.displayName || pmField.name || "" }
+          ? { name: pmField.name || "", displayName: pmField.displayName || pmField.name || "", email: pmField.emailAddress || null }
           : null,
         growthSquad: squadField?.value || null,
         productCategory: productCategoryField?.value || null,

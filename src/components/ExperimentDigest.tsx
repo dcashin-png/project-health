@@ -62,9 +62,17 @@ interface DateRanges {
   nextMonthEnd: string;
 }
 
+interface SlackCandidate {
+  slackId: string;
+  displayName: string;
+  title: string | null;
+  avatar: string | null;
+}
+
 interface SlackUser {
   slackId: string;
   displayName: string;
+  avatar: string | null;
 }
 
 interface ChannelOption {
@@ -243,6 +251,7 @@ export function ExperimentDigest() {
   const [driOverrides, setDriOverrides] = useState<Record<string, string>>({});
 
   // Slack user lookup
+  const [candidateMap, setCandidateMap] = useState<Record<string, SlackCandidate[]>>({});
   const [userMap, setUserMap] = useState<Record<string, SlackUser | null>>({});
   const [lookingUpUsers, setLookingUpUsers] = useState(false);
 
@@ -362,28 +371,62 @@ export function ExperimentDigest() {
 
   // Slack user lookup
   const lookupUsers = useCallback(async () => {
-    const namesToLookup = new Set<string>();
+    const toLookup: { name: string; email: string }[] = [];
+    const seen = new Set<string>();
     for (const exp of experiments) {
       const name = driOverrides[exp.key] || exp.experimentDri[0]?.displayName;
-      if (name && !userMap[name]) {
-        namesToLookup.add(name);
+      if (name && !userMap[name] && !seen.has(name)) {
+        seen.add(name);
+        const email = exp.experimentDri[0]?.email || "";
+        toLookup.push({ name, email });
       }
     }
-    if (namesToLookup.size === 0) return;
+    if (toLookup.length === 0) return;
 
     setLookingUpUsers(true);
     try {
+      const names = toLookup.map((l) => l.name).join(",");
+      const emails = toLookup.map((l) => l.email).join(",");
       const res = await fetch(
-        `/api/slack/lookup-users?names=${encodeURIComponent([...namesToLookup].join(","))}`
+        `/api/slack/lookup-users?names=${encodeURIComponent(names)}&emails=${encodeURIComponent(emails)}`
       );
       const data = await res.json();
-      setUserMap((prev) => ({ ...prev, ...data.users }));
+      const newCandidates: Record<string, SlackCandidate[]> = data.candidates || {};
+      setCandidateMap((prev) => ({ ...prev, ...newCandidates }));
+
+      // Auto-select when there's exactly 1 candidate
+      const autoSelected: Record<string, SlackUser | null> = {};
+      for (const [name, candidates] of Object.entries(newCandidates)) {
+        if (candidates.length === 1) {
+          autoSelected[name] = candidates[0];
+        }
+      }
+      if (Object.keys(autoSelected).length > 0) {
+        setUserMap((prev) => ({ ...prev, ...autoSelected }));
+      }
     } catch {
       // Proceed without Slack mentions
     } finally {
       setLookingUpUsers(false);
     }
   }, [experiments, driOverrides, userMap]);
+
+  // Auto-lookup users when experiments load
+  const hasLookedUp = useRef(false);
+  useEffect(() => {
+    if (experiments.length > 0 && !hasLookedUp.current) {
+      hasLookedUp.current = true;
+      lookupUsers();
+    }
+  }, [experiments, lookupUsers]);
+
+  const selectSlackUser = (driName: string, slackId: string) => {
+    const candidates = candidateMap[driName] || [];
+    const candidate = candidates.find((c) => c.slackId === slackId);
+    if (candidate) {
+      setUserMap((prev) => ({ ...prev, [driName]: candidate }));
+    }
+  };
 
   const handlePreview = async (mode: "weekly" | "monthly") => {
     await lookupUsers();
@@ -548,18 +591,50 @@ export function ExperimentDigest() {
                     <span>{exp[dateField] ? formatShortDate(exp[dateField]) : "'Unknown'"}</span>
                     <span>{acvLabel} ACV: {exp[acvField] !== null ? formatAcv(exp[acvField] || 0) : "'Unknown'"}</span>
                     <span className="inline-flex items-center gap-1">
-                      DRI:
-                      <input
-                        type="text"
-                        value={driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "'Unknown'"}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setDriOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        placeholder="Slack lookup name"
-                        className="border border-gray-200 rounded px-1.5 py-0 text-xs w-32 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      />
+                      {(() => {
+                        const driName = driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "";
+                        const candidates = driName ? (candidateMap[driName] || []) : [];
+                        const selected = driName ? userMap[driName] : null;
+
+                        return (
+                          <>
+                            DRI:
+                            {selected?.avatar && (
+                              <img src={selected.avatar} alt={selected.displayName} className="w-4 h-4 rounded-full" />
+                            )}
+                            {candidates.length > 1 ? (
+                              <select
+                                value={selected?.slackId || ""}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  if (driName) selectSlackUser(driName, e.target.value);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="border border-gray-200 rounded px-1 py-0 text-xs bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-48"
+                              >
+                                <option value="">Select...</option>
+                                {candidates.map((c) => (
+                                  <option key={c.slackId} value={c.slackId}>
+                                    {c.displayName}{c.title ? ` — ${c.title}` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={driName || "'Unknown'"}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  setDriOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="Slack lookup name"
+                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-32 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              />
+                            )}
+                          </>
+                        );
+                      })()}
                     </span>
                     <span>Category: {exp.productCategory || "'Unknown'"}</span>
                     <span>Squad: {exp.growthSquad || "'Unknown'"}</span>

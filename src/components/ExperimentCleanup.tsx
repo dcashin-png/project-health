@@ -41,9 +41,17 @@ const EXPERIMENT_STATUSES = [
   "Cancelled",
 ];
 
+interface SlackCandidate {
+  slackId: string;
+  displayName: string;
+  title: string | null;
+  avatar: string | null;
+}
+
 interface SlackUser {
   slackId: string;
   displayName: string;
+  avatar: string | null;
 }
 
 interface ChannelOption {
@@ -92,6 +100,7 @@ export function ExperimentCleanup() {
   const [error, setError] = useState<string | null>(null);
 
   // Slack user lookup cache
+  const [candidateMap, setCandidateMap] = useState<Record<string, SlackCandidate[]>>({});
   const [userMap, setUserMap] = useState<Record<string, SlackUser | null>>({});
   const [lookingUpUsers, setLookingUpUsers] = useState(false);
 
@@ -221,30 +230,54 @@ export function ExperimentCleanup() {
   };
 
   const lookupUsers = useCallback(async (exps: CleanupExperiment[]) => {
-    const namesToLookup = new Set<string>();
+    const toLookup: { name: string; email: string }[] = [];
+    const seen = new Set<string>();
     for (const exp of exps) {
       const override = pmOverrides[exp.key];
       const lookupName = override || exp.productManager?.name;
-      if (lookupName && !userMap[lookupName]) {
-        namesToLookup.add(lookupName);
+      if (lookupName && !userMap[lookupName] && !seen.has(lookupName)) {
+        seen.add(lookupName);
+        const email = exp.productManager?.email || "";
+        toLookup.push({ name: lookupName, email });
       }
     }
 
-    if (namesToLookup.size === 0) return;
+    if (toLookup.length === 0) return;
 
     setLookingUpUsers(true);
     try {
+      const names = toLookup.map((l) => l.name).join(",");
+      const emails = toLookup.map((l) => l.email).join(",");
       const res = await fetch(
-        `/api/slack/lookup-users?names=${encodeURIComponent([...namesToLookup].join(","))}`
+        `/api/slack/lookup-users?names=${encodeURIComponent(names)}&emails=${encodeURIComponent(emails)}`
       );
       const data = await res.json();
-      setUserMap((prev) => ({ ...prev, ...data.users }));
+      const newCandidates: Record<string, SlackCandidate[]> = data.candidates || {};
+      setCandidateMap((prev) => ({ ...prev, ...newCandidates }));
+
+      const autoSelected: Record<string, SlackUser | null> = {};
+      for (const [name, candidates] of Object.entries(newCandidates)) {
+        if (candidates.length === 1) {
+          autoSelected[name] = candidates[0];
+        }
+      }
+      if (Object.keys(autoSelected).length > 0) {
+        setUserMap((prev) => ({ ...prev, ...autoSelected }));
+      }
     } catch {
       // Proceed without Slack mentions
     } finally {
       setLookingUpUsers(false);
     }
   }, [userMap, pmOverrides]);
+
+  const selectSlackUser = (pmName: string, slackId: string) => {
+    const candidates = candidateMap[pmName] || [];
+    const candidate = candidates.find((c) => c.slackId === slackId);
+    if (candidate) {
+      setUserMap((prev) => ({ ...prev, [pmName]: candidate }));
+    }
+  };
 
   const handlePreview = async () => {
     const selectedExps = experiments.filter((e) => selected.has(e.key));
@@ -488,21 +521,55 @@ export function ExperimentCleanup() {
                   </span>
                   {/* PM with override */}
                   <span className="inline-flex items-center gap-1">
-                    PM:
-                    <input
-                      type="text"
-                      value={pmOverrides[exp.key] ?? exp.productManager?.name ?? ""}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        setPmOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      placeholder="Slack lookup name"
-                      className="border border-gray-200 rounded px-1.5 py-0 text-xs w-28 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    />
-                    {exp.productManager && !pmOverrides[exp.key] && (
-                      <span className="text-gray-400">({exp.productManager.displayName})</span>
-                    )}
+                    {(() => {
+                      const pmName = pmOverrides[exp.key] ?? exp.productManager?.name ?? "";
+                      const candidates = pmName ? (candidateMap[pmName] || []) : [];
+                      const selectedUser = pmName ? userMap[pmName] : null;
+
+                      return (
+                        <>
+                          PM:
+                          {selectedUser?.avatar && (
+                            <img src={selectedUser.avatar} alt={selectedUser.displayName} className="w-4 h-4 rounded-full" />
+                          )}
+                          {candidates.length > 1 ? (
+                            <select
+                              value={selectedUser?.slackId || ""}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (pmName) selectSlackUser(pmName, e.target.value);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="border border-gray-200 rounded px-1 py-0 text-xs bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-48"
+                            >
+                              <option value="">Select...</option>
+                              {candidates.map((c) => (
+                                <option key={c.slackId} value={c.slackId}>
+                                  {c.displayName}{c.title ? ` — ${c.title}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <>
+                              <input
+                                type="text"
+                                value={pmOverrides[exp.key] ?? exp.productManager?.name ?? ""}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  setPmOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="Slack lookup name"
+                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-28 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              />
+                              {exp.productManager && !pmOverrides[exp.key] && (
+                                <span className="text-gray-400">({exp.productManager.displayName})</span>
+                              )}
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
                   </span>
                   {/* Squad */}
                   {exp.growthSquad && <span>Squad: {exp.growthSquad}</span>}
