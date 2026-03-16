@@ -21,6 +21,7 @@ const FIELDS = [
   "customfield_18500", // Experiment DRI
   "customfield_10606", // Product Manager
   "customfield_18401", // Growth Squad
+  "customfield_18801", // Product Category
 ];
 
 export async function GET() {
@@ -36,6 +37,7 @@ export async function GET() {
         | { name?: string; displayName?: string }
         | null;
       const squadField = f.customfield_18401 as { value?: string } | null;
+      const productCategoryField = f.customfield_18801 as { value?: string } | null;
 
       return {
         key: issue.key,
@@ -54,6 +56,7 @@ export async function GET() {
           ? { name: pmField.name || "", displayName: pmField.displayName || pmField.name || "" }
           : null,
         growthSquad: squadField?.value || null,
+        productCategory: productCategoryField?.value || null,
       };
     });
 

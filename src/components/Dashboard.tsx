@@ -9,9 +9,10 @@ import { ShareToSlackButton } from "./ShareToSlack";
 import { ExperimentCleanup } from "./ExperimentCleanup";
 import { RoadmapSync } from "./RoadmapSync";
 import { AcvDashboard } from "./AcvDashboard";
+import { ExperimentDigest } from "./ExperimentDigest";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "roadmap" | "acv";
+type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -97,6 +98,7 @@ export function Dashboard() {
             { key: "health", label: "Health" },
             { key: "timeline", label: "Timeline" },
             { key: "cleanup", label: "Experiment Cleanup" },
+            { key: "digest", label: "Weekly Digest" },
             { key: "roadmap", label: "Roadmap Sync" },
             { key: "acv", label: "ACV" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
@@ -180,6 +182,10 @@ export function Dashboard() {
 
         {activeTab === "cleanup" && (
           <ExperimentCleanup />
+        )}
+
+        {activeTab === "digest" && (
+          <ExperimentDigest />
         )}
 
         {activeTab === "roadmap" && (

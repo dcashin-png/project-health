@@ -504,6 +504,8 @@ export function ExperimentCleanup() {
                   </span>
                   {/* Squad */}
                   {exp.growthSquad && <span>Squad: {exp.growthSquad}</span>}
+                  {/* Product Category */}
+                  {exp.productCategory && <span>Category: {exp.productCategory}</span>}
                 </div>
               </div>
             </label>

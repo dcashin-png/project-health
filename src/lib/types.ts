@@ -77,6 +77,24 @@ export interface CleanupExperiment {
   experimentDri: Array<{ name: string; displayName: string }>;
   productManager: { name: string; displayName: string } | null;
   growthSquad: string | null;
+  productCategory: string | null;
+}
+
+export interface DigestExperiment {
+  key: string;
+  summary: string;
+  url: string;
+  status: string;
+  experimentStatus: string;
+  experimentStartDate: string | null;
+  experimentEndDate: string | null;
+  gaLaunchDate: string | null;
+  expectedLaunchStartDate: string | null;
+  estimatedAcv: number | null;
+  actualAcv: number | null;
+  experimentDri: Array<{ name: string; displayName: string }>;
+  productCategory: string | null;
+  growthSquad: string | null;
 }
 
 export interface AcvFilters {
