@@ -379,7 +379,9 @@ export function ExperimentCleanup() {
             <label
               key={exp.key}
               className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
-                selected.has(exp.key) ? "bg-blue-50/50" : ""
+                exp.experimentStatus === "Paused/Issues" || exp.experimentStatus === "Cancelled"
+                  ? "bg-red-50"
+                  : selected.has(exp.key) ? "bg-blue-50/50" : ""
               }`}
             >
               <input
@@ -423,7 +425,7 @@ export function ExperimentCleanup() {
                               ? "bg-green-100 text-green-700"
                               : exp.experimentStatus === "Analysis"
                                 ? "bg-purple-100 text-purple-700"
-                                : exp.experimentStatus === "Paused / Issues"
+                                : exp.experimentStatus === "Paused/Issues"
                                   ? "bg-amber-100 text-amber-700"
                                   : exp.experimentStatus === "Concluded Control"
                                     ? "bg-rose-100 text-rose-700"

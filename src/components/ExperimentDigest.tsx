@@ -293,7 +293,7 @@ export function ExperimentDigest() {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split("T")[0];
-    const excludedStatuses = ["Paused / Issues", "Cancelled"];
+    const excludedStatuses = ["Paused/Issues", "Cancelled"];
     const velocityExps = experiments.filter((e) =>
       inRange(e.experimentStartDate, dates.monthStart, yesterdayStr)
       && !excludedStatuses.includes(e.experimentStatus)
@@ -520,7 +520,9 @@ export function ExperimentDigest() {
               <label
                 key={exp.key}
                 className={`flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  sel.has(exp.key) ? "bg-blue-50/50" : ""
+                  exp.experimentStatus === "Paused/Issues" || exp.experimentStatus === "Cancelled"
+                    ? "bg-red-50"
+                    : sel.has(exp.key) ? "bg-blue-50/50" : ""
                 }`}
               >
                 <input
