@@ -63,8 +63,7 @@ export async function GET() {
 
     const JQL = `project IN (${PROJECTS})
       AND issuetype in (Epic, Experiment)
-      AND "Experiment Status" NOT IN ("Cancelled")
-      AND resolution NOT IN ("Won't Do")
+      AND status NOT IN (Cancelled, "Won't Do")
       AND (
         ("Experiment Start Date" >= "${dates.monthStart}" AND "Experiment Start Date" <= "${dates.nextMonthEnd}")
         OR ("Experiment End Date" >= "${dates.lastWeekStart}" AND "Experiment End Date" <= "${dates.thisWeekEnd}")
