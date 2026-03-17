@@ -24,60 +24,70 @@ interface QueryTemplate {
   jql: (params: Record<string, string>) => string;
 }
 
-const EXCLUDE_STATUSES = `"Experiment Status" NOT IN ("Paused/Issues", "Cancelled")`;
+// Experiments: exclude by Jira workflow status + resolution
+// Epics: exclude by Experiment Status custom field
+const EXCLUDE_FILTER = `(
+  (issuetype = Experiment AND status != "Paused / Issues" AND resolution != "Won't Do")
+  OR (issuetype = Epic AND "Experiment Status" NOT IN ("Paused/Issues", "Cancelled"))
+)`;
 
-function dateRange(p: Record<string, string>, field: string): string {
+function dateFilter(p: Record<string, string>, expDateField: string): string {
   const since = p.since || "2025-01-01";
   const until = p.until;
-  if (until) {
-    return `"${field}" >= "${since}" AND "${field}" <= "${until}"`;
-  }
-  return `"${field}" >= "${since}"`;
+  // Experiments: key off the experiment date field
+  // Epics: key off created date
+  const expRange = until
+    ? `"${expDateField}" >= "${since}" AND "${expDateField}" <= "${until}"`
+    : `"${expDateField}" >= "${since}"`;
+  const epicRange = until
+    ? `created >= "${since}" AND created <= "${until}"`
+    : `created >= "${since}"`;
+  return `((issuetype = Experiment AND ${expRange}) OR (issuetype = Epic AND ${epicRange}))`;
 }
 
 const QUERIES: Record<string, QueryTemplate> = {
   "experiments-by-status": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Experiment Start Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Experiment Start Date")}
         ORDER BY "Experiment Start Date" ASC`,
   },
   "experiments-by-squad": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Experiment Start Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Experiment Start Date")}
         ORDER BY "Growth Squad" ASC`,
   },
   "acv-by-squad": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Experiment Start Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Experiment Start Date")}
         AND "Estimated ACV" > 0
         ORDER BY "Growth Squad" ASC`,
   },
   "acv-by-category": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Experiment Start Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Experiment Start Date")}
         AND "Estimated ACV" > 0
         ORDER BY "Product Category" ASC`,
   },
   "monthly-velocity": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Experiment Start Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Experiment Start Date")}
         ORDER BY "Experiment Start Date" ASC`,
   },
   "ga-tracker": {
     jql: (p) =>
-      `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
-        AND ${EXCLUDE_STATUSES}
-        AND ${dateRange(p, "Expected Launch START Date")}
+      `project IN (${PROJECTS})
+        AND ${EXCLUDE_FILTER}
+        AND ${dateFilter(p, "Expected Launch START Date")}
         AND (status = Done OR "Experiment Status" = "GA Complete")
         ORDER BY "Expected Launch START Date" ASC`,
   },
