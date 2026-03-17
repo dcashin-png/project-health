@@ -10,9 +10,10 @@ import { ExperimentCleanup } from "./ExperimentCleanup";
 import { RoadmapSync } from "./RoadmapSync";
 import { AcvDashboard } from "./AcvDashboard";
 import { ExperimentDigest } from "./ExperimentDigest";
+import { JiraExplore } from "./JiraExplore";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv";
+type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -101,6 +102,7 @@ export function Dashboard() {
             { key: "digest", label: "Weekly Digest" },
             { key: "roadmap", label: "Roadmap Sync" },
             { key: "acv", label: "ACV" },
+            { key: "explore", label: "Explore" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -194,6 +196,10 @@ export function Dashboard() {
 
         {activeTab === "acv" && (
           <AcvDashboard />
+        )}
+
+        {activeTab === "explore" && (
+          <JiraExplore />
         )}
       </main>
     </div>
