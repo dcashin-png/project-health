@@ -24,6 +24,8 @@ interface QueryTemplate {
   jql: (params: Record<string, string>) => string;
 }
 
+const EXCLUDE_STATUSES = `"Experiment Status" NOT IN ("Paused/Issues", "Cancelled")`;
+
 function dateRange(p: Record<string, string>, field: string): string {
   const since = p.since || "2025-01-01";
   const until = p.until;
@@ -37,18 +39,21 @@ const QUERIES: Record<string, QueryTemplate> = {
   "experiments-by-status": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Experiment Start Date")}
         ORDER BY "Experiment Start Date" ASC`,
   },
   "experiments-by-squad": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Experiment Start Date")}
         ORDER BY "Growth Squad" ASC`,
   },
   "acv-by-squad": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Experiment Start Date")}
         AND "Estimated ACV" > 0
         ORDER BY "Growth Squad" ASC`,
@@ -56,6 +61,7 @@ const QUERIES: Record<string, QueryTemplate> = {
   "acv-by-category": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Experiment Start Date")}
         AND "Estimated ACV" > 0
         ORDER BY "Product Category" ASC`,
@@ -63,12 +69,14 @@ const QUERIES: Record<string, QueryTemplate> = {
   "monthly-velocity": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Experiment Start Date")}
         ORDER BY "Experiment Start Date" ASC`,
   },
   "ga-tracker": {
     jql: (p) =>
       `project IN (${PROJECTS}) AND issuetype IN (Epic, Experiment)
+        AND ${EXCLUDE_STATUSES}
         AND ${dateRange(p, "Expected Launch START Date")}
         AND (status = Done OR "Experiment Status" = "GA Complete")
         ORDER BY "Expected Launch START Date" ASC`,
