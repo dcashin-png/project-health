@@ -38,6 +38,9 @@ yarn-error.log*
 .slack-tokens.json
 .houston-tokens.json
 
+# snapshot data
+/data/stripe-tax-snapshots/
+
 # vercel
 .vercel
 

@@ -11,9 +11,10 @@ import { RoadmapSync } from "./RoadmapSync";
 import { AcvDashboard } from "./AcvDashboard";
 import { ExperimentDigest } from "./ExperimentDigest";
 import { JiraExplore } from "./JiraExplore";
+import { StripeTaxDashboard } from "./StripeTaxDashboard";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore";
+type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore" | "stripe-tax";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -103,6 +104,7 @@ export function Dashboard() {
             { key: "roadmap", label: "Roadmap Sync" },
             { key: "acv", label: "ACV" },
             { key: "explore", label: "Explore" },
+            { key: "stripe-tax", label: "Stripe Tax" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -200,6 +202,10 @@ export function Dashboard() {
 
         {activeTab === "explore" && (
           <JiraExplore />
+        )}
+
+        {activeTab === "stripe-tax" && (
+          <StripeTaxDashboard />
         )}
       </main>
     </div>

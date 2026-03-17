@@ -226,6 +226,27 @@ function buildMonthlyMessage(
   return lines.join("\n");
 }
 
+// --- Collision Types ---
+
+interface CollisionExperiment {
+  key: string;
+  summary: string;
+  url: string;
+  experimentStatus: string;
+  experimentStartDate: string | null;
+  experimentEndDate: string | null;
+  growthSquad: string | null;
+  productCategory: string | null;
+  dri: string | null;
+}
+
+interface CollisionMonth {
+  start: string;
+  end: string;
+  label: string;
+  offset: number;
+}
+
 // --- Component ---
 
 export function ExperimentDigest() {
@@ -233,6 +254,14 @@ export function ExperimentDigest() {
   const [dates, setDates] = useState<DateRanges | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Collision calendar state
+  const [collisionExps, setCollisionExps] = useState<CollisionExperiment[]>([]);
+  const [collisionsLoading, setCollisionsLoading] = useState(true);
+  const [collisionsExpanded, setCollisionsExpanded] = useState(true);
+  const [collisionMonth, setCollisionMonth] = useState(0);
+  const [collisionMonthInfo, setCollisionMonthInfo] = useState<CollisionMonth | null>(null);
+  const [collisionGroupBy, setCollisionGroupBy] = useState<"squad" | "category">("squad");
 
   // Selections per section
   const [selections, setSelections] = useState<Record<SectionKey, Set<string>>>({
@@ -335,7 +364,21 @@ export function ExperimentDigest() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+
   }, []);
+
+  // Fetch collision calendar data (re-fetches when month changes)
+  useEffect(() => {
+    setCollisionsLoading(true);
+    fetch(`/api/experiment-digest/collisions?month=${collisionMonth}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.experiments) setCollisionExps(data.experiments);
+        if (data.month) setCollisionMonthInfo(data.month);
+      })
+      .catch(() => {})
+      .finally(() => setCollisionsLoading(false));
+  }, [collisionMonth]);
 
   // Initialize selections when sections change
   useEffect(() => {
@@ -519,6 +562,79 @@ export function ExperimentDigest() {
     }
   };
 
+  // --- Collision calendar computed values (must be before early returns) ---
+
+  // Group collision experiments by squad or category for the calendar
+  const collisionGroups = useMemo(() => {
+    const groups = new Map<string, CollisionExperiment[]>();
+    for (const exp of collisionExps) {
+      const key = collisionGroupBy === "squad"
+        ? (exp.growthSquad || "No Squad")
+        : (exp.productCategory || "No Category");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(exp);
+    }
+    // Sort groups: those with 2+ experiments (potential overlaps) first
+    return [...groups.entries()].sort((a, b) => {
+      if (a[1].length > 1 && b[1].length <= 1) return -1;
+      if (a[1].length <= 1 && b[1].length > 1) return 1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [collisionExps, collisionGroupBy]);
+
+  // Count groups with overlaps
+  const overlapGroupCount = useMemo(() => {
+    let count = 0;
+    for (const [, exps] of collisionGroups) {
+      if (exps.length < 2) continue;
+      let found = false;
+      for (let i = 0; i < exps.length && !found; i++) {
+        for (let j = i + 1; j < exps.length && !found; j++) {
+          const a = exps[i], b = exps[j];
+          if (!a.experimentStartDate || !b.experimentStartDate) continue;
+          const aEnd = a.experimentEndDate || a.experimentStartDate;
+          const bEnd = b.experimentEndDate || b.experimentStartDate;
+          const overlapStart = a.experimentStartDate > b.experimentStartDate ? a.experimentStartDate : b.experimentStartDate;
+          const overlapEnd = aEnd < bEnd ? aEnd : bEnd;
+          if (overlapStart <= overlapEnd) { count++; found = true; }
+        }
+      }
+    }
+    return count;
+  }, [collisionGroups]);
+
+  // Calendar helpers
+  const calDaysInMonth = collisionMonthInfo
+    ? Math.round((new Date(collisionMonthInfo.end + "T00:00:00").getTime() - new Date(collisionMonthInfo.start + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24)) + 1
+    : 30;
+
+  const calStart = collisionMonthInfo?.start || "";
+  const calEnd = collisionMonthInfo?.end || "";
+
+  const calWeekMarkers = useMemo(() => {
+    if (!calStart) return [];
+    const markers: { pct: string; label: string; isMajor: boolean }[] = [];
+    const cursor = new Date(calStart + "T00:00:00");
+    const endDate = new Date(calEnd + "T00:00:00");
+    while (cursor <= endDate) {
+      const day = cursor.getDate();
+      const isMonday = cursor.getDay() === 1;
+      const isFirst = day === 1;
+      if (isFirst || isMonday) {
+        const offset = Math.round((cursor.getTime() - new Date(calStart + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24));
+        markers.push({
+          pct: `${(offset / calDaysInMonth) * 100}%`,
+          label: isFirst
+            ? cursor.toLocaleDateString("en-US", { month: "short" })
+            : String(day),
+          isMajor: isFirst,
+        });
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return markers;
+  }, [calStart, calEnd, calDaysInMonth]);
+
   // --- Render ---
 
   if (loading) {
@@ -672,8 +788,207 @@ export function ExperimentDigest() {
     );
   };
 
+  // Collision calendar render helpers (not hooks — safe after early returns)
+  function dayOffset(dateStr: string): number {
+    if (!calStart) return 0;
+    return Math.round((new Date(dateStr + "T00:00:00").getTime() - new Date(calStart + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  function barStyle(exp: CollisionExperiment): { left: string; width: string } {
+    if (!exp.experimentStartDate) return { left: "0%", width: "0%" };
+    const start = exp.experimentStartDate < calStart ? calStart : exp.experimentStartDate;
+    const end = exp.experimentEndDate
+      ? (exp.experimentEndDate > calEnd ? calEnd : exp.experimentEndDate)
+      : start;
+    const leftDay = dayOffset(start);
+    const widthDays = Math.max(dayOffset(end) - leftDay + 1, 1);
+    return {
+      left: `${(leftDay / calDaysInMonth) * 100}%`,
+      width: `${(widthDays / calDaysInMonth) * 100}%`,
+    };
+  }
+
+  const BAR_COLORS = [
+    "bg-blue-400", "bg-purple-400", "bg-emerald-400", "bg-amber-400",
+    "bg-rose-400", "bg-cyan-400", "bg-indigo-400", "bg-orange-400",
+    "bg-teal-400", "bg-pink-400",
+  ];
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todayInRange = calStart && calEnd && todayStr >= calStart && todayStr <= calEnd;
+  const todayPct = todayInRange ? `${(dayOffset(todayStr) / calDaysInMonth) * 100}%` : null;
+
   return (
     <div className="space-y-4">
+      {/* Experiment Collision Calendar */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between rounded-t-lg">
+          <button
+            onClick={() => setCollisionsExpanded(!collisionsExpanded)}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <h3 className="text-sm font-semibold text-gray-900">
+              Experiment Calendar
+            </h3>
+            {!collisionsLoading && (
+              <span className="text-xs text-gray-500">
+                {collisionExps.length} experiments
+                {overlapGroupCount > 0 && (
+                  <span className="text-orange-600 font-medium ml-1">
+                    ({overlapGroupCount} {collisionGroupBy}{overlapGroupCount !== 1 ? "s" : ""} with overlaps)
+                  </span>
+                )}
+              </span>
+            )}
+            <span className="text-gray-400 text-xs ml-2">{collisionsExpanded ? "collapse" : "expand"}</span>
+          </button>
+          <div className="flex items-center gap-3">
+            {/* Group by toggle */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-md p-0.5">
+              {(["squad", "category"] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setCollisionGroupBy(g)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                    collisionGroupBy === g
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {g === "squad" ? "By Squad" : "By Category"}
+                </button>
+              ))}
+            </div>
+            {/* Month nav */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCollisionMonth((m) => m - 1)}
+                disabled={collisionMonth <= 0}
+                className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                &larr;
+              </button>
+              <span className="text-xs font-medium text-gray-900 min-w-[120px] text-center">
+                {collisionsLoading ? "..." : collisionMonthInfo?.label || ""}
+              </span>
+              <button
+                onClick={() => setCollisionMonth((m) => m + 1)}
+                disabled={collisionMonth >= 3}
+                className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                &rarr;
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {collisionsExpanded && (
+          <div>
+            {collisionsLoading ? (
+              <div className="px-4 py-6 text-sm text-gray-500 text-center">Loading experiment calendar...</div>
+            ) : collisionExps.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-gray-500 text-center">
+                No active experiments for {collisionMonthInfo?.label || "this month"}.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                {/* Day headers */}
+                <div className="flex border-b border-gray-100">
+                  <div className="shrink-0 w-[200px] border-r border-gray-100" />
+                  <div className="relative flex-1 h-6 min-w-[600px]">
+                    {calWeekMarkers.map((m, i) => (
+                      <span
+                        key={i}
+                        className={`absolute top-0 text-[10px] pl-0.5 ${m.isMajor ? "font-semibold text-gray-600" : "text-gray-400"}`}
+                        style={{ left: m.pct }}
+                      >
+                        {m.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Grouped swim lanes */}
+                {collisionGroups.map(([groupName, exps]) => {
+                  const hasOverlap = exps.length >= 2;
+                  return (
+                    <div key={groupName} className="border-b border-gray-100">
+                      {/* Group header */}
+                      <div className={`flex ${hasOverlap ? "bg-orange-50/40" : ""}`}>
+                        <div className="shrink-0 w-[200px] px-3 py-1.5 border-r border-gray-100 flex items-center">
+                          <span className={`text-xs font-medium truncate ${hasOverlap ? "text-orange-800" : "text-gray-700"}`}>
+                            {groupName}
+                          </span>
+                          <span className="text-[10px] text-gray-400 ml-1.5">({exps.length})</span>
+                        </div>
+                        <div className="relative flex-1 min-w-[600px]" style={{ height: exps.length * 26 + 8 }}>
+                          {/* Grid lines */}
+                          {calWeekMarkers.map((m, i) => (
+                            <div
+                              key={i}
+                              className="absolute top-0 bottom-0"
+                              style={{
+                                left: m.pct,
+                                width: 1,
+                                backgroundColor: m.isMajor ? "#e5e7eb" : "#f3f4f6",
+                              }}
+                            />
+                          ))}
+                          {/* Today line */}
+                          {todayPct && (
+                            <div
+                              className="absolute top-0 bottom-0 z-10"
+                              style={{ left: todayPct, width: 2, backgroundColor: "#ef4444" }}
+                            />
+                          )}
+                          {/* Experiment bars */}
+                          {exps.map((exp, idx) => {
+                            const style = barStyle(exp);
+                            const color = BAR_COLORS[idx % BAR_COLORS.length];
+                            return (
+                              <a
+                                key={exp.key}
+                                href={exp.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`absolute ${color} rounded h-[20px] opacity-80 hover:opacity-100 transition-opacity flex items-center overflow-hidden group`}
+                                style={{
+                                  left: style.left,
+                                  width: style.width,
+                                  top: idx * 26 + 4,
+                                }}
+                                title={`${exp.key}: ${exp.summary}\n${exp.experimentStartDate || "?"} - ${exp.experimentEndDate || "?"}\nStatus: ${exp.experimentStatus}\nDRI: ${exp.dri || "Unknown"}`}
+                              >
+                                <span className="text-[10px] text-white font-medium px-1.5 truncate drop-shadow-sm">
+                                  {exp.key}
+                                </span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Legend */}
+                <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 text-[10px] text-gray-500">
+                  <div className="flex items-center gap-1">
+                    <div className="w-0.5 h-3 bg-red-500" />
+                    <span>Today</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-6 h-2.5 rounded bg-orange-50 border border-orange-200" />
+                    <span>Groups with overlapping experiments</span>
+                  </div>
+                  <span className="ml-auto">Hover bars for details. Click to open in JIRA.</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Monthly metrics summary */}
       {dates && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">
