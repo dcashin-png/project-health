@@ -3,18 +3,63 @@ import path from "path";
 
 const TOKEN_FILE = path.join(process.cwd(), ".slack-tokens.json");
 const MCP_URL = "https://mcp.slack.com/mcp";
+const CLIENT_ID = "188160004832.9210129962818";
 
 let cachedToken: string | null = null;
+
+interface TokenData {
+  access_token: string;
+  refresh_token?: string;
+  expires_at?: number;
+  [key: string]: unknown;
+}
+
+async function readTokenFile(): Promise<TokenData> {
+  const raw = await fs.readFile(TOKEN_FILE, "utf-8");
+  return JSON.parse(raw);
+}
+
+async function refreshToken(data: TokenData): Promise<string> {
+  if (!data.refresh_token) {
+    throw new Error("Slack token expired and no refresh token. Run: node scripts/slack-auth.mjs");
+  }
+  const res = await fetch("https://slack.com/api/oauth.v2.user.access", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      grant_type: "refresh_token",
+      refresh_token: data.refresh_token,
+    }),
+  });
+  const tokens = await res.json();
+  if (!tokens.ok) {
+    throw new Error(`Slack token refresh failed: ${tokens.error}. Run: node scripts/slack-auth.mjs`);
+  }
+  const updated: TokenData = {
+    ...data,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token || data.refresh_token,
+    expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
+    saved_at: new Date().toISOString(),
+  };
+  await fs.writeFile(TOKEN_FILE, JSON.stringify(updated, null, 2));
+  cachedToken = updated.access_token;
+  return cachedToken;
+}
 
 async function getToken(): Promise<string> {
   if (cachedToken) return cachedToken;
 
   try {
-    const raw = await fs.readFile(TOKEN_FILE, "utf-8");
-    const data = JSON.parse(raw);
+    const data = await readTokenFile();
+    if (data.expires_at && Date.now() > data.expires_at - 60_000) {
+      return await refreshToken(data);
+    }
     cachedToken = data.access_token;
-    return cachedToken!;
-  } catch {
+    return cachedToken;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("refresh")) throw err;
     throw new Error("No Slack token found. Run: node scripts/slack-auth.mjs");
   }
 }
@@ -41,7 +86,31 @@ export async function callSlackMcp(toolName: string, args: Record<string, unknow
   if (!res.ok) {
     if (res.status === 401) {
       cachedToken = null;
-      throw new Error("Slack token expired. Run: node scripts/slack-auth.mjs");
+      try {
+        const tokenData = await readTokenFile();
+        const newToken = await refreshToken(tokenData);
+        const retry = await fetch(MCP_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${newToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: { name: toolName, arguments: args },
+            id: Date.now(),
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!retry.ok) throw new Error("Still unauthorized after refresh");
+        const retryData = await retry.json();
+        const retryContent = retryData.result?.content || [];
+        const retryText = retryContent.find((c: { type: string; text?: string }) => c.type === "text");
+        return retryText?.text || "";
+      } catch {
+        throw new Error("Slack token expired. Run: node scripts/slack-auth.mjs");
+      }
     }
     throw new Error(`Slack MCP returned ${res.status}`);
   }

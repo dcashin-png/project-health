@@ -412,8 +412,8 @@ export function ExperimentDigest() {
     });
   };
 
-  // Slack user lookup
-  const lookupUsers = useCallback(async (exps: DigestExperiment[]) => {
+  // Slack user lookup — returns the resolved userMap so callers don't need to wait for React state
+  const lookupUsers = useCallback(async (exps: DigestExperiment[]): Promise<Record<string, SlackUser | null>> => {
     const toLookup: { name: string; email: string }[] = [];
     const seen = new Set<string>();
     for (const exp of exps) {
@@ -424,7 +424,7 @@ export function ExperimentDigest() {
         toLookup.push({ name, email });
       }
     }
-    if (toLookup.length === 0) return;
+    if (toLookup.length === 0) return {};
 
     setLookingUpUsers(true);
     try {
@@ -437,18 +437,19 @@ export function ExperimentDigest() {
       const newCandidates: Record<string, SlackCandidate[]> = data.candidates || {};
       setCandidateMap((prev) => ({ ...prev, ...newCandidates }));
 
-      // Auto-select when there's exactly 1 candidate
+      // Auto-select first candidate for each name
       const autoSelected: Record<string, SlackUser | null> = {};
       for (const [name, candidates] of Object.entries(newCandidates)) {
-        if (candidates.length === 1) {
+        if (candidates.length >= 1) {
           autoSelected[name] = candidates[0];
         }
       }
       if (Object.keys(autoSelected).length > 0) {
         setUserMap((prev) => ({ ...prev, ...autoSelected }));
       }
+      return autoSelected;
     } catch {
-      // Proceed without Slack mentions
+      return {};
     } finally {
       setLookingUpUsers(false);
     }
@@ -472,10 +473,12 @@ export function ExperimentDigest() {
   const [driError, setDriError] = useState<string | null>(null);
 
   const handlePreview = async (mode: "weekly" | "monthly") => {
-    await lookupUsers(experiments);
+    const freshUsers = await lookupUsers(experiments);
+    // Merge with existing userMap since lookupUsers returns only newly resolved
+    const resolvedUsers = { ...userMap, ...freshUsers };
     setDriError(null);
 
-    // Check that all selected experiments have a resolved DRI
+    // Warn about unresolved DRIs but don't block preview
     const weeklySections: SectionKey[] = ["launched", "gad", "launching", "ending"];
     const monthlySections: SectionKey[] = ["roadmap", "roadmapGad"];
     const sectionsToCheck = mode === "weekly" ? weeklySections : monthlySections;
@@ -485,15 +488,14 @@ export function ExperimentDigest() {
       for (const exp of sections[sKey]) {
         if (!selections[sKey].has(exp.key)) continue;
         const driName = driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "";
-        if (!driName || !userMap[driName]) {
-          missing.push(`${exp.key}: ${exp.summary}`);
+        if (!driName || !resolvedUsers[driName]) {
+          missing.push(exp.key);
         }
       }
     }
 
     if (missing.length > 0) {
-      setDriError(`Select a DRI for: ${missing.join(", ")}`);
-      return;
+      setDriError(`${missing.length} experiment(s) without a resolved Slack DRI will show plain text names: ${missing.join(", ")}`);
     }
 
     setPreviewMode(mode);
