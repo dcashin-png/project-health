@@ -107,7 +107,7 @@ function buildMcpRequest(toolName: string, args: Record<string, unknown>) {
 }
 
 // Houston MCP returns SSE format
-async function callHoustonMcp(toolName: string, args: Record<string, unknown>): Promise<string> {
+export async function callHoustonMcp(toolName: string, args: Record<string, unknown>): Promise<string> {
   const token = await getToken();
 
   const req = buildMcpRequest(toolName, args);

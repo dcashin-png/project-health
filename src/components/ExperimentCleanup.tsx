@@ -73,7 +73,7 @@ function buildSlackMessage(
     // Find the PM to mention — use override if set
     let mention = "";
     const override = pmOverrides[exp.key];
-    const lookupName = override || exp.productManager?.name;
+    const lookupName = override || exp.productManager?.displayName;
     if (lookupName) {
       const user = userMap[lookupName];
       if (user) {
@@ -126,6 +126,7 @@ export function ExperimentCleanup() {
 
   // PM name overrides for Slack lookup (keyed by issue key)
   const [pmOverrides, setPmOverrides] = useState<Record<string, string>>({});
+  const pmLookupTimeout = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Jira update state
   const [updating, setUpdating] = useState<Record<string, boolean>>({});
@@ -241,7 +242,7 @@ export function ExperimentCleanup() {
     const seen = new Set<string>();
     for (const exp of exps) {
       const override = pmOverrides[exp.key];
-      const lookupName = override || exp.productManager?.name;
+      const lookupName = override || exp.productManager?.displayName;
       if (lookupName && !userMap[lookupName] && !seen.has(lookupName)) {
         seen.add(lookupName);
         const email = exp.productManager?.email || "";
@@ -284,6 +285,40 @@ export function ExperimentCleanup() {
     if (candidate) {
       setUserMap((prev) => ({ ...prev, [pmName]: candidate }));
     }
+  };
+
+  const lookupSingleUser = useCallback(async (name: string) => {
+    if (name.length < 2) return;
+    try {
+      const res = await fetch(
+        `/api/slack/lookup-users?names=${encodeURIComponent(name)}&emails=`
+      );
+      const data = await res.json();
+      const newCandidates: Record<string, SlackCandidate[]> = data.candidates || {};
+      setCandidateMap((prev) => ({ ...prev, ...newCandidates }));
+
+      for (const [n, candidates] of Object.entries(newCandidates)) {
+        if (candidates.length === 1) {
+          setUserMap((prev) => ({ ...prev, [n]: candidates[0] }));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handlePmOverride = (issueKey: string, value: string) => {
+    setPmOverrides((prev) => ({ ...prev, [issueKey]: value }));
+    // Clear previous timer for this issue
+    if (pmLookupTimeout.current[issueKey]) {
+      clearTimeout(pmLookupTimeout.current[issueKey]);
+    }
+    // Debounce lookup
+    pmLookupTimeout.current[issueKey] = setTimeout(() => {
+      if (value.trim().length >= 2) {
+        lookupSingleUser(value.trim());
+      }
+    }, 500);
   };
 
   const handlePreview = async () => {
@@ -419,9 +454,11 @@ export function ExperimentCleanup() {
             <label
               key={exp.key}
               className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
-                exp.experimentStatus === "Paused/Issues" || exp.experimentStatus === "Cancelled"
+                exp.productCategory && exp.productCategory !== "Experiment"
                   ? "bg-red-50"
-                  : selected.has(exp.key) ? "bg-blue-50/50" : ""
+                  : exp.experimentStatus === "Paused/Issues" || exp.experimentStatus === "Cancelled"
+                    ? "bg-red-50"
+                    : selected.has(exp.key) ? "bg-blue-50/50" : ""
               }`}
             >
               <input
@@ -529,7 +566,7 @@ export function ExperimentCleanup() {
                   {/* PM with override */}
                   <span className="inline-flex items-center gap-1">
                     {(() => {
-                      const pmName = pmOverrides[exp.key] ?? exp.productManager?.name ?? "";
+                      const pmName = pmOverrides[exp.key] ?? exp.productManager?.displayName ?? "";
                       const candidates = pmName ? (candidateMap[pmName] || []) : [];
                       const selectedUser = pmName ? userMap[pmName] : null;
 
@@ -560,14 +597,14 @@ export function ExperimentCleanup() {
                             <>
                               <input
                                 type="text"
-                                value={pmOverrides[exp.key] ?? exp.productManager?.name ?? ""}
+                                value={pmOverrides[exp.key] ?? exp.productManager?.displayName ?? ""}
                                 onChange={(e) => {
                                   e.stopPropagation();
-                                  setPmOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
+                                  handlePmOverride(exp.key, e.target.value);
                                 }}
                                 onClick={(e) => e.stopPropagation()}
-                                placeholder="Slack lookup name"
-                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-28 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                placeholder="Type a name to search Slack..."
+                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-36 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
                               />
                               {exp.productManager && !pmOverrides[exp.key] && (
                                 <span className="text-gray-400">({exp.productManager.displayName})</span>

@@ -12,9 +12,12 @@ import { AcvDashboard } from "./AcvDashboard";
 import { ExperimentDigest } from "./ExperimentDigest";
 import { JiraExplore } from "./JiraExplore";
 import { StripeTaxDashboard } from "./StripeTaxDashboard";
+import { HoustonDashboard } from "./HoustonDashboard";
+import { WbrDashboard } from "./WbrDashboard";
+import { ConvertRoadmap } from "./ConvertRoadmap";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore" | "stripe-tax";
+type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore" | "stripe-tax" | "houston" | "wbr" | "convert";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -105,6 +108,9 @@ export function Dashboard() {
             { key: "acv", label: "ACV" },
             { key: "explore", label: "Explore" },
             { key: "stripe-tax", label: "Stripe Tax" },
+            { key: "houston", label: "Houston" },
+            { key: "wbr", label: "WBR" },
+            { key: "convert", label: "Convert" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -206,6 +212,18 @@ export function Dashboard() {
 
         {activeTab === "stripe-tax" && (
           <StripeTaxDashboard />
+        )}
+
+        {activeTab === "houston" && (
+          <HoustonDashboard />
+        )}
+
+        {activeTab === "wbr" && (
+          <WbrDashboard jiraFilter={jiraFilter} />
+        )}
+
+        {activeTab === "convert" && (
+          <ConvertRoadmap />
         )}
       </main>
     </div>
