@@ -40,6 +40,7 @@ yarn-error.log*
 
 # snapshot data
 /data/stripe-tax-snapshots/
+/data/roadmap-snapshots/
 
 # vercel
 .vercel

@@ -279,6 +279,31 @@ export function ExperimentDigest() {
   // DRI overrides
   const [driOverrides, setDriOverrides] = useState<Record<string, string>>({});
 
+  // WoW snapshot state
+  interface SnapshotExp {
+    key: string;
+    summary: string;
+    estimatedAcv: number | null;
+    experimentStartDate: string | null;
+    experimentEndDate: string | null;
+  }
+  interface WowDiff {
+    added: DigestExperiment[];
+    dropped: SnapshotExp[];
+    acvChanges: Array<{ key: string; summary: string; oldAcv: number | null; newAcv: number | null }>;
+    dateChanges: Array<{
+      key: string;
+      summary: string;
+      field: "experimentStartDate" | "experimentEndDate";
+      oldDate: string | null;
+      newDate: string | null;
+    }>;
+    snapshotDate: string;
+  }
+  const [wowDiff, setWowDiff] = useState<WowDiff | null>(null);
+  const [wowExpanded, setWowExpanded] = useState(true);
+  const snapshotSavedFor = useRef<string>("");
+
   // Slack user lookup
   const [candidateMap, setCandidateMap] = useState<Record<string, SlackCandidate[]>>({});
   const [userMap, setUserMap] = useState<Record<string, SlackUser | null>>({});
@@ -366,6 +391,72 @@ export function ExperimentDigest() {
       .finally(() => setLoading(false));
 
   }, []);
+
+  // WoW diff: fetch previous snapshot, compute diff, save current snapshot
+  useEffect(() => {
+    if (sections.roadmap.length === 0 || !dates) return;
+
+    const today = new Date().toISOString().split("T")[0];
+
+    // Fetch previous snapshot for this month
+    fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const prev = data.snapshot as { date: string; experiments: SnapshotExp[] } | null;
+        if (prev && prev.date !== today) {
+          const prevMap = new Map(prev.experiments.map((e) => [e.key, e]));
+          const currMap = new Map(sections.roadmap.map((e) => [e.key, e]));
+
+          const added = sections.roadmap.filter((e) => !prevMap.has(e.key));
+          const dropped = prev.experiments.filter((e) => !currMap.has(e.key));
+
+          const acvChanges: WowDiff["acvChanges"] = [];
+          const dateChanges: WowDiff["dateChanges"] = [];
+
+          for (const curr of sections.roadmap) {
+            const old = prevMap.get(curr.key);
+            if (!old) continue;
+            if ((old.estimatedAcv ?? null) !== (curr.estimatedAcv ?? null)) {
+              acvChanges.push({ key: curr.key, summary: curr.summary, oldAcv: old.estimatedAcv, newAcv: curr.estimatedAcv });
+            }
+            if ((old.experimentStartDate ?? null) !== (curr.experimentStartDate ?? null)) {
+              dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentStartDate", oldDate: old.experimentStartDate, newDate: curr.experimentStartDate });
+            }
+            if ((old.experimentEndDate ?? null) !== (curr.experimentEndDate ?? null)) {
+              dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentEndDate", oldDate: old.experimentEndDate, newDate: curr.experimentEndDate });
+            }
+          }
+
+          setWowDiff({ added, dropped, acvChanges, dateChanges, snapshotDate: prev.date });
+        } else {
+          setWowDiff(null);
+        }
+
+        // Save today's snapshot (once per month toggle per session)
+        const saveKey = `${today}_${roadmapMonth}`;
+        if (snapshotSavedFor.current !== saveKey) {
+          snapshotSavedFor.current = saveKey;
+          const monthLabel = getMonthName(roadmapMonth === "current" ? dates.monthStart : dates.nextMonthStart);
+          fetch("/api/experiment-digest/snapshots", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: today,
+              month: roadmapMonth,
+              monthLabel,
+              experiments: sections.roadmap.map((e) => ({
+                key: e.key,
+                summary: e.summary,
+                estimatedAcv: e.estimatedAcv,
+                experimentStartDate: e.experimentStartDate,
+                experimentEndDate: e.experimentEndDate,
+              })),
+            }),
+          }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [sections.roadmap, dates, roadmapMonth]);
 
   // Fetch collision calendar data (re-fetches when month changes)
   useEffect(() => {
@@ -1092,6 +1183,83 @@ export function ExperimentDigest() {
               </button>
             </div>
           </div>
+
+          {/* Week-over-Week Changes */}
+          {wowDiff && (wowDiff.added.length > 0 || wowDiff.dropped.length > 0 || wowDiff.acvChanges.length > 0 || wowDiff.dateChanges.length > 0) && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+              <button
+                onClick={() => setWowExpanded((v) => !v)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left"
+              >
+                <span className="text-sm font-semibold text-amber-800">
+                  Week-over-Week Changes
+                  <span className="ml-2 text-xs font-normal text-amber-600">
+                    vs. {new Date(wowDiff.snapshotDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </span>
+                </span>
+                <span className="text-amber-600 text-xs">{wowExpanded ? "Hide" : "Show"}</span>
+              </button>
+              {wowExpanded && (
+                <div className="px-4 pb-3 space-y-3">
+                  {wowDiff.added.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-green-700 mb-1">+ Added ({wowDiff.added.length})</h4>
+                      <ul className="space-y-0.5">
+                        {wowDiff.added.map((e) => (
+                          <li key={e.key} className="text-xs text-gray-700">
+                            <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{e.key}</a>{" "}
+                            {e.summary}
+                            {e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {wowDiff.dropped.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-red-700 mb-1">- Dropped ({wowDiff.dropped.length})</h4>
+                      <ul className="space-y-0.5">
+                        {wowDiff.dropped.map((e) => (
+                          <li key={e.key} className="text-xs text-gray-700">
+                            <a href={`https://jira.tinyspeck.com/browse/${e.key}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{e.key}</a>{" "}
+                            {e.summary}
+                            {e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {wowDiff.acvChanges.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-purple-700 mb-1">ACV Adjustments ({wowDiff.acvChanges.length})</h4>
+                      <ul className="space-y-0.5">
+                        {wowDiff.acvChanges.map((c) => (
+                          <li key={c.key} className="text-xs text-gray-700">
+                            <a href={`https://jira.tinyspeck.com/browse/${c.key}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{c.key}</a>{" "}
+                            {c.summary}: {c.oldAcv !== null ? formatAcv(c.oldAcv) : "none"} &rarr; {c.newAcv !== null ? formatAcv(c.newAcv) : "none"}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {wowDiff.dateChanges.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-blue-700 mb-1">Date Changes ({wowDiff.dateChanges.length})</h4>
+                      <ul className="space-y-0.5">
+                        {wowDiff.dateChanges.map((c, i) => (
+                          <li key={`${c.key}-${c.field}-${i}`} className="text-xs text-gray-700">
+                            <a href={`https://jira.tinyspeck.com/browse/${c.key}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{c.key}</a>{" "}
+                            {c.summary} ({c.field === "experimentStartDate" ? "Start" : "End"}): {formatShortDate(c.oldDate)} &rarr; {formatShortDate(c.newDate)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {renderSection(
             `All ${roadmapMonth === "current" ? getMonthName(dates.monthStart) : getMonthName(dates.nextMonthStart)} Experiments`,
             "roadmap",
