@@ -78,6 +78,7 @@ export interface CleanupExperiment {
   productManager: { name: string; displayName: string; email: string | null } | null;
   growthSquad: string | null;
   productCategory: string | null;
+  estimatedAcv: number | null;
 }
 
 export interface DigestExperiment {

@@ -22,10 +22,10 @@ function describeIssue(exp: CleanupExperiment): string {
   const endPast = daysPast(exp.experimentEndDate);
 
   if (startPast !== null && startPast > 0 && (exp.experimentStatus === "Planning" || exp.experimentStatus === "Development")) {
-    return `Experiment start date was *${formatDate(exp.experimentStartDate)}* (${startPast}d ago) but status is still *${exp.experimentStatus}*`;
+    return `Experiment start date was *${formatDate(exp.experimentStartDate)}* (${startPast}d ago) but experiment status is still *${exp.experimentStatus}*`;
   }
   if (endPast !== null && endPast > 0 && exp.status !== "Done") {
-    return `Experiment end date was *${formatDate(exp.experimentEndDate)}* (${endPast}d ago) but Jira status is *${exp.status}*`;
+    return `Experiment end date was *${formatDate(exp.experimentEndDate)}* (${endPast}d ago) but experiment status is still *${exp.experimentStatus}*`;
   }
   return `Status needs review`;
 }
@@ -95,6 +95,7 @@ function buildSlackMessage(
 
 export function ExperimentCleanup() {
   const [experiments, setExperiments] = useState<CleanupExperiment[]>([]);
+  const [missingAcv, setMissingAcv] = useState<CleanupExperiment[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +207,7 @@ export function ExperimentCleanup() {
           return;
         }
         setExperiments(data.experiments || []);
+        setMissingAcv(data.missingAcv || []);
         // Select all by default
         setSelected(new Set((data.experiments || []).map((e: CleanupExperiment) => e.key)));
       })
@@ -403,7 +405,7 @@ export function ExperimentCleanup() {
     );
   }
 
-  if (experiments.length === 0) {
+  if (experiments.length === 0 && missingAcv.length === 0) {
     return (
       <div className="text-center py-16 text-gray-500">
         <p className="text-lg mb-2">No experiments need cleanup</p>
@@ -625,6 +627,59 @@ export function ExperimentCleanup() {
           );
         })}
       </div>
+
+      {/* Missing Estimated ACV section */}
+      {missingAcv.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">
+            Missing Estimated ACV
+            <span className="ml-2 text-xs font-normal text-gray-400">
+              ({missingAcv.length} experiment{missingAcv.length !== 1 ? "s" : ""})
+            </span>
+          </h3>
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-gray-500 bg-gray-50">
+                  <th className="px-4 py-2 font-medium">Key</th>
+                  <th className="px-4 py-2 font-medium">Summary</th>
+                  <th className="px-4 py-2 font-medium">Experiment Status</th>
+                  <th className="px-4 py-2 font-medium">Start Date</th>
+                  <th className="px-4 py-2 font-medium">End Date</th>
+                  <th className="px-4 py-2 font-medium">DRI</th>
+                  <th className="px-4 py-2 font-medium">Growth Squad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missingAcv.map((exp) => (
+                  <tr key={exp.key} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2">
+                      <a
+                        href={exp.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        {exp.key}
+                      </a>
+                    </td>
+                    <td className="px-4 py-2 max-w-[300px] truncate">{exp.summary}</td>
+                    <td className="px-4 py-2 text-gray-600">{exp.experimentStatus}</td>
+                    <td className="px-4 py-2 text-gray-600">{formatDate(exp.experimentStartDate)}</td>
+                    <td className="px-4 py-2 text-gray-600">{formatDate(exp.experimentEndDate)}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {exp.experimentDri.length > 0
+                        ? exp.experimentDri.map((d) => d.displayName).join(", ")
+                        : exp.assignee || "\u2014"}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">{exp.growthSquad || "\u2014"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Preview modal */}
       {showPreview && (
