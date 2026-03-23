@@ -15,9 +15,10 @@ import { StripeTaxDashboard } from "./StripeTaxDashboard";
 import { HoustonDashboard } from "./HoustonDashboard";
 import { WbrDashboard } from "./WbrDashboard";
 import { ConvertRoadmap } from "./ConvertRoadmap";
+import { GrowthFunnel } from "./GrowthFunnel";
 
 type HealthFilter = "all" | "needs-help" | "at-risk" | "healthy";
-type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore" | "stripe-tax" | "houston" | "wbr" | "convert";
+type ViewTab = "health" | "timeline" | "cleanup" | "digest" | "roadmap" | "acv" | "explore" | "stripe-tax" | "houston" | "wbr" | "convert" | "funnel";
 
 const FILTER_STORAGE_KEY = "project-health-jira-filter";
 
@@ -111,6 +112,7 @@ export function Dashboard() {
             { key: "houston", label: "Houston" },
             { key: "wbr", label: "WBR" },
             { key: "convert", label: "Convert" },
+            { key: "funnel", label: "Growth Funnel" },
           ] as { key: ViewTab; label: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -224,6 +226,10 @@ export function Dashboard() {
 
         {activeTab === "convert" && (
           <ConvertRoadmap />
+        )}
+
+        {activeTab === "funnel" && (
+          <GrowthFunnel />
         )}
       </main>
     </div>

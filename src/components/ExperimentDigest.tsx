@@ -203,6 +203,7 @@ function buildMonthlyMessage(
   const totalAcv = sumAcv(filtered, "estimatedAcv");
 
   lines.push(`:calendar: **${month} Experiment Roadmap: ${filtered.length} experiments | Total Estimated ACV: ${formatAcv(totalAcv)}**`);
+  lines.push(`_Dates shown are experiment start dates_`);
   for (const exp of filtered) {
     const date = exp.experimentStartDate ? formatShortDate(exp.experimentStartDate) : "`Unknown`";
     const dri = getDriMention(exp);
@@ -216,6 +217,7 @@ function buildMonthlyMessage(
 
   lines.push("");
   lines.push(`:white_check_mark: **${month} GA'd: ${gadFiltered.length} experiments | Total Actual ACV: ${formatAcv(gadTotalAcv)}**`);
+  lines.push(`_Dates shown are GA dates_`);
   for (const exp of gadFiltered) {
     const date = exp.expectedLaunchStartDate ? formatShortDate(exp.expectedLaunchStartDate) : "`Unknown`";
     const dri = getDriMention(exp);
