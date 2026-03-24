@@ -228,6 +228,63 @@ function buildMonthlyMessage(
   return lines.join("\n");
 }
 
+// --- WoW Slack Message Builder ---
+
+function buildWowSlackMessage(diff: {
+  added: Array<{ key: string; summary: string; estimatedAcv: number | null; url?: string }>;
+  dropped: Array<{ key: string; summary: string; estimatedAcv: number | null }>;
+  acvChanges: Array<{ key: string; summary: string; oldAcv: number | null; newAcv: number | null }>;
+  dateChanges: Array<{ key: string; summary: string; field: string; oldDate: string | null; newDate: string | null }>;
+  snapshotDate: string;
+}): string {
+  const lines: string[] = [];
+  const snapLabel = new Date(diff.snapshotDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  lines.push(`:bar_chart: *Experiment Roadmap — Week-over-Week Changes* (vs. ${snapLabel})`);
+  lines.push("");
+
+  if (diff.added.length > 0) {
+    lines.push(`*:heavy_plus_sign: Added (${diff.added.length})*`);
+    for (const e of diff.added) {
+      const jiraUrl = (e as { url?: string }).url || `https://jira.tinyspeck.com/browse/${e.key}`;
+      const acv = e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : "";
+      lines.push(`    • <${jiraUrl}|${e.key}> ${e.summary}${acv}`);
+    }
+    lines.push("");
+  }
+
+  if (diff.dropped.length > 0) {
+    lines.push(`*:heavy_minus_sign: Dropped (${diff.dropped.length})*`);
+    for (const e of diff.dropped) {
+      const acv = e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : "";
+      lines.push(`    • <https://jira.tinyspeck.com/browse/${e.key}|${e.key}> ${e.summary}${acv}`);
+    }
+    lines.push("");
+  }
+
+  if (diff.acvChanges.length > 0) {
+    lines.push(`*:chart_with_upwards_trend: ACV Adjustments (${diff.acvChanges.length})*`);
+    for (const c of diff.acvChanges) {
+      const oldVal = c.oldAcv !== null ? formatAcv(c.oldAcv) : "none";
+      const newVal = c.newAcv !== null ? formatAcv(c.newAcv) : "none";
+      lines.push(`    • <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary}: ${oldVal} → ${newVal}`);
+    }
+    lines.push("");
+  }
+
+  if (diff.dateChanges.length > 0) {
+    lines.push(`*:calendar: Date Changes (${diff.dateChanges.length})*`);
+    for (const c of diff.dateChanges) {
+      const label = c.field === "experimentStartDate" ? "Start" : "End";
+      const oldVal = c.oldDate ? formatShortDate(c.oldDate) : "—";
+      const newVal = c.newDate ? formatShortDate(c.newDate) : "—";
+      lines.push(`    • <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary} (${label}): ${oldVal} → ${newVal}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 // --- Collision Types ---
 
 interface CollisionExperiment {
@@ -304,6 +361,8 @@ export function ExperimentDigest() {
   }
   const [wowDiff, setWowDiff] = useState<WowDiff | null>(null);
   const [wowExpanded, setWowExpanded] = useState(true);
+  const [availableSnapshots, setAvailableSnapshots] = useState<string[]>([]);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const snapshotSavedFor = useRef<string>("");
 
   // Slack user lookup
@@ -312,7 +371,7 @@ export function ExperimentDigest() {
   const [lookingUpUsers, setLookingUpUsers] = useState(false);
 
   // Preview/send state — "weekly" or "monthly" or null
-  const [previewMode, setPreviewMode] = useState<"weekly" | "monthly" | null>(null);
+  const [previewMode, setPreviewMode] = useState<"weekly" | "monthly" | "wow" | null>(null);
   const [message, setMessage] = useState("");
 
   // Channel picker
@@ -394,44 +453,53 @@ export function ExperimentDigest() {
 
   }, []);
 
+  // Compute diff from a snapshot
+  const computeDiff = useCallback((prev: { date: string; experiments: SnapshotExp[] }) => {
+    const prevMap = new Map(prev.experiments.map((e) => [e.key, e]));
+    const currMap = new Map(sections.roadmap.map((e) => [e.key, e]));
+
+    const added = sections.roadmap.filter((e) => !prevMap.has(e.key));
+    const dropped = prev.experiments.filter((e) => !currMap.has(e.key));
+
+    const acvChanges: WowDiff["acvChanges"] = [];
+    const dateChanges: WowDiff["dateChanges"] = [];
+
+    for (const curr of sections.roadmap) {
+      const old = prevMap.get(curr.key);
+      if (!old) continue;
+      if ((old.estimatedAcv ?? null) !== (curr.estimatedAcv ?? null)) {
+        acvChanges.push({ key: curr.key, summary: curr.summary, oldAcv: old.estimatedAcv, newAcv: curr.estimatedAcv });
+      }
+      if ((old.experimentStartDate ?? null) !== (curr.experimentStartDate ?? null)) {
+        dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentStartDate", oldDate: old.experimentStartDate, newDate: curr.experimentStartDate });
+      }
+      if ((old.experimentEndDate ?? null) !== (curr.experimentEndDate ?? null)) {
+        dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentEndDate", oldDate: old.experimentEndDate, newDate: curr.experimentEndDate });
+      }
+    }
+
+    setWowDiff({ added, dropped, acvChanges, dateChanges, snapshotDate: prev.date });
+  }, [sections.roadmap]);
+
   // WoW diff: fetch previous snapshot, compute diff, save current snapshot
   useEffect(() => {
     if (sections.roadmap.length === 0 || !dates) return;
 
     const today = new Date().toISOString().split("T")[0];
 
-    // Fetch previous snapshot for this month
+    // Fetch default snapshot (most recent before today)
     fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}`)
       .then((r) => r.json())
       .then((data) => {
+        setAvailableSnapshots(data.availableDates || []);
+
         const prev = data.snapshot as { date: string; experiments: SnapshotExp[] } | null;
-        if (prev && prev.date !== today) {
-          const prevMap = new Map(prev.experiments.map((e) => [e.key, e]));
-          const currMap = new Map(sections.roadmap.map((e) => [e.key, e]));
-
-          const added = sections.roadmap.filter((e) => !prevMap.has(e.key));
-          const dropped = prev.experiments.filter((e) => !currMap.has(e.key));
-
-          const acvChanges: WowDiff["acvChanges"] = [];
-          const dateChanges: WowDiff["dateChanges"] = [];
-
-          for (const curr of sections.roadmap) {
-            const old = prevMap.get(curr.key);
-            if (!old) continue;
-            if ((old.estimatedAcv ?? null) !== (curr.estimatedAcv ?? null)) {
-              acvChanges.push({ key: curr.key, summary: curr.summary, oldAcv: old.estimatedAcv, newAcv: curr.estimatedAcv });
-            }
-            if ((old.experimentStartDate ?? null) !== (curr.experimentStartDate ?? null)) {
-              dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentStartDate", oldDate: old.experimentStartDate, newDate: curr.experimentStartDate });
-            }
-            if ((old.experimentEndDate ?? null) !== (curr.experimentEndDate ?? null)) {
-              dateChanges.push({ key: curr.key, summary: curr.summary, field: "experimentEndDate", oldDate: old.experimentEndDate, newDate: curr.experimentEndDate });
-            }
-          }
-
-          setWowDiff({ added, dropped, acvChanges, dateChanges, snapshotDate: prev.date });
+        if (prev) {
+          setSelectedSnapshot(prev.date);
+          computeDiff(prev);
         } else {
           setWowDiff(null);
+          setSelectedSnapshot(null);
         }
 
         // Save today's snapshot (once per month toggle per session)
@@ -458,7 +526,26 @@ export function ExperimentDigest() {
         }
       })
       .catch(() => {});
-  }, [sections.roadmap, dates, roadmapMonth]);
+  }, [sections.roadmap, dates, roadmapMonth, computeDiff]);
+
+  // Re-fetch when user selects a different snapshot
+  useEffect(() => {
+    if (!selectedSnapshot || sections.roadmap.length === 0) return;
+
+    fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}&date=${selectedSnapshot}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const prev = data.snapshot as { date: string; experiments: SnapshotExp[] } | null;
+        if (prev) {
+          computeDiff(prev);
+        } else {
+          setWowDiff(null);
+        }
+      })
+      .catch(() => {});
+    // Only re-run when selectedSnapshot changes manually, not on initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSnapshot]);
 
   // Fetch collision calendar data (re-fetches when month changes)
   useEffect(() => {
@@ -601,10 +688,12 @@ export function ExperimentDigest() {
     if (!previewMode || !dates) return;
     if (previewMode === "weekly") {
       setMessage(buildSlackMessage(sections, selections, userMap, driOverrides, dates, monthlyMetrics));
+    } else if (previewMode === "wow") {
+      if (wowDiff) setMessage(buildWowSlackMessage(wowDiff));
     } else {
       setMessage(buildMonthlyMessage(sections.roadmap, selections.roadmap, sections.roadmapGad, selections.roadmapGad, userMap, driOverrides, dates, roadmapMonth));
     }
-  }, [previewMode, sections, selections, userMap, driOverrides, dates, monthlyMetrics, roadmapMonth]);
+  }, [previewMode, sections, selections, userMap, driOverrides, dates, monthlyMetrics, roadmapMonth, wowDiff]);
 
   // Channel search
   const searchChannels = useCallback(async (q: string) => {
@@ -1189,18 +1278,41 @@ export function ExperimentDigest() {
           {/* Week-over-Week Changes */}
           {wowDiff && (wowDiff.added.length > 0 || wowDiff.dropped.length > 0 || wowDiff.acvChanges.length > 0 || wowDiff.dateChanges.length > 0) && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
-              <button
-                onClick={() => setWowExpanded((v) => !v)}
-                className="w-full px-4 py-2.5 flex items-center justify-between text-left"
-              >
-                <span className="text-sm font-semibold text-amber-800">
-                  Week-over-Week Changes
-                  <span className="ml-2 text-xs font-normal text-amber-600">
-                    vs. {new Date(wowDiff.snapshotDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              <div className="px-4 py-2.5 flex items-center justify-between">
+                <button
+                  onClick={() => setWowExpanded((v) => !v)}
+                  className="flex items-center gap-2 text-left"
+                >
+                  <span className="text-sm font-semibold text-amber-800">
+                    Week-over-Week Changes
                   </span>
-                </span>
-                <span className="text-amber-600 text-xs">{wowExpanded ? "Hide" : "Show"}</span>
-              </button>
+                  <span className="text-amber-600 text-xs">{wowExpanded ? "Hide" : "Show"}</span>
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-amber-600">vs.</span>
+                  <select
+                    value={selectedSnapshot || ""}
+                    onChange={(e) => setSelectedSnapshot(e.target.value)}
+                    className="text-xs border border-amber-300 rounded px-1.5 py-0.5 bg-white text-amber-800 cursor-pointer"
+                  >
+                    {availableSnapshots.map((d) => (
+                      <option key={d} value={d}>
+                        {new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      setSent(false);
+                      setSendError(null);
+                      setPreviewMode("wow");
+                    }}
+                    className="text-xs px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                  >
+                    Share to Slack
+                  </button>
+                </div>
+              </div>
               {wowExpanded && (
                 <div className="px-4 pb-3 space-y-3">
                   {wowDiff.added.length > 0 && (
@@ -1286,10 +1398,12 @@ export function ExperimentDigest() {
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">
-                  {previewMode === "weekly" ? "Preview Weekly Digest" : "Preview Monthly Roadmap"}
+                  {previewMode === "weekly" ? "Preview Weekly Digest" : previewMode === "wow" ? "Share WoW Changes" : "Preview Monthly Roadmap"}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  {previewMode === "weekly" ? weeklySelected : selections.roadmap.size} experiments selected
+                  {previewMode === "wow"
+                    ? `${(wowDiff?.added.length || 0) + (wowDiff?.dropped.length || 0) + (wowDiff?.acvChanges.length || 0) + (wowDiff?.dateChanges.length || 0)} changes`
+                    : previewMode === "weekly" ? `${weeklySelected} experiments selected` : `${selections.roadmap.size} experiments selected`}
                 </p>
               </div>
               <button

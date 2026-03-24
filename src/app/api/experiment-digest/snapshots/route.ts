@@ -19,6 +19,8 @@ export interface RoadmapSnapshot {
 
 export async function GET(request: NextRequest) {
   const month = request.nextUrl.searchParams.get("month") || "current";
+  const selectedDate = request.nextUrl.searchParams.get("date"); // optional: fetch a specific snapshot
+  const today = new Date().toISOString().split("T")[0];
 
   try {
     await fs.mkdir(SNAPSHOT_DIR, { recursive: true });
@@ -38,16 +40,28 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    if (matching.length === 0) {
-      return NextResponse.json({ snapshot: null });
+    // Return list of available snapshot dates (excluding today)
+    const availableDates = matching
+      .filter((f) => f.date !== today)
+      .map((f) => f.date);
+
+    // If a specific date is requested, return that snapshot
+    const target = selectedDate
+      ? matching.find((f) => f.date === selectedDate)
+      : matching.find((f) => f.date !== today); // default: most recent before today
+
+    if (!target) {
+      return NextResponse.json({ snapshot: null, availableDates });
     }
 
-    // Return the most recent snapshot
-    const filePath = path.join(SNAPSHOT_DIR, matching[0].file);
+    const filePath = path.join(SNAPSHOT_DIR, target.file);
     const raw = await fs.readFile(filePath, "utf-8");
-    return NextResponse.json({ snapshot: JSON.parse(raw) as RoadmapSnapshot });
+    return NextResponse.json({
+      snapshot: JSON.parse(raw) as RoadmapSnapshot,
+      availableDates,
+    });
   } catch {
-    return NextResponse.json({ snapshot: null });
+    return NextResponse.json({ snapshot: null, availableDates: [] });
   }
 }
 
