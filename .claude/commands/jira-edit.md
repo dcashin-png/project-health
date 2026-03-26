@@ -60,7 +60,7 @@ A successful response returns JSON with `id`, `key`, and `self`. An error respon
 ```
 slack-uberproxy-curl -s -X POST \
   -H "Content-Type: application/json" \
-  -d '{"fields":{"project":{"key":"GRO"},"issuetype":{"name":"Epic"},"summary":"New Pricing Page Test","customfield_10002":"New Pricing Page Test","priority":{"name":"Needs Prioritization"},"customfield_19103":{"value":"Pipeline"},"customfield_19001":500000,"customfield_18401":{"value":"Monetization"}}}' \
+  -d '{"fields":{"project":{"key":"GRO"},"issuetype":{"name":"Epic"},"summary":"New Pricing Page Test","customfield_10002":"New Pricing Page Test","priority":{"name":"Needs Prioritization"},"customfield_19103":{"value":"Planning"},"customfield_19001":500000,"customfield_18401":{"value":"Monetization"}}}' \
   "https://jira.tinyspeck.com/rest/api/2/issue"
 ```
 
@@ -82,6 +82,14 @@ These are the Growth experiment fields used in this project:
 | Actual ACV | `customfield_19000` | `150000` (number) |
 | GA Launch Date | `customfield_18503` | `"2026-03-26"` |
 | Expected Launch Start Date | `customfield_10611` | `"2026-03-26"` |
+
+## Allowed Values
+
+### Experiment Status
+Development, Planning, Running, Paused/Issues, Analysis, Cancelled, Concluded Control, GA Complete
+
+### Product Category
+New Product, New Feature, Feature Update, Experiment, Trust & Reliability
 
 ## Example: Update Experiment Status
 
