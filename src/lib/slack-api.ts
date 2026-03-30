@@ -80,7 +80,7 @@ export async function callSlackMcp(toolName: string, args: Record<string, unknow
       params: { name: toolName, arguments: args },
       id: Date.now(),
     }),
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {
@@ -101,7 +101,7 @@ export async function callSlackMcp(toolName: string, args: Record<string, unknow
             params: { name: toolName, arguments: args },
             id: Date.now(),
           }),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(30000),
         });
         if (!retry.ok) throw new Error("Still unauthorized after refresh");
         const retryData = await retry.json();

@@ -20,35 +20,41 @@ export async function GET(request: NextRequest) {
   const emailList = emails ? emails.split(",").map((e) => e.trim()) : [];
   const candidates: Record<string, SlackCandidate[]> = {};
 
-  await Promise.all(
-    nameList.map(async (name, i) => {
-      try {
-        const email = emailList[i] || "";
+  // Process in batches of 5 to avoid overwhelming the Slack MCP server
+  const concurrency = 5;
+  for (let i = 0; i < nameList.length; i += concurrency) {
+    const batch = nameList.slice(i, i + concurrency);
+    const batchOffset = i;
+    await Promise.all(
+      batch.map(async (name, j) => {
+        try {
+          const email = emailList[batchOffset + j] || "";
 
-        // If we have an email, try exact email match first
-        if (email) {
-          const raw = await callSlackMcp("slack_search_users", {
-            query: email,
-            limit: 1,
-          });
-          const parsed = parseUserBlocks(raw);
-          if (parsed.length === 1) {
-            candidates[name] = parsed;
-            return;
+          // If we have an email, try exact email match first
+          if (email) {
+            const raw = await callSlackMcp("slack_search_users", {
+              query: email,
+              limit: 1,
+            });
+            const parsed = parseUserBlocks(raw);
+            if (parsed.length === 1) {
+              candidates[name] = parsed;
+              return;
+            }
           }
-        }
 
-        // Search by name and return all candidates
-        const raw = await callSlackMcp("slack_search_users", {
-          query: name,
-          limit: 10,
-        });
-        candidates[name] = parseUserBlocks(raw);
-      } catch {
-        candidates[name] = [];
-      }
-    })
-  );
+          // Search by name and return all candidates
+          const raw = await callSlackMcp("slack_search_users", {
+            query: name,
+            limit: 10,
+          });
+          candidates[name] = parseUserBlocks(raw);
+        } catch {
+          candidates[name] = [];
+        }
+      })
+    );
+  }
 
   return NextResponse.json({ candidates });
 }

@@ -19,7 +19,7 @@ export interface RoadmapSnapshot {
 
 export async function GET(request: NextRequest) {
   const month = request.nextUrl.searchParams.get("month") || "current";
-  const selectedDate = request.nextUrl.searchParams.get("date"); // optional: fetch a specific snapshot
+  const selectedDate = request.nextUrl.searchParams.get("date");
   const today = new Date().toISOString().split("T")[0];
 
   try {
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    // Return list of available snapshot dates (excluding today)
+    // Available dates for comparison (excluding today)
     const availableDates = matching
       .filter((f) => f.date !== today)
       .map((f) => f.date);

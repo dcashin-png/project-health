@@ -228,63 +228,6 @@ function buildMonthlyMessage(
   return lines.join("\n");
 }
 
-// --- WoW Slack Message Builder ---
-
-function buildWowSlackMessage(diff: {
-  added: Array<{ key: string; summary: string; estimatedAcv: number | null; url?: string }>;
-  dropped: Array<{ key: string; summary: string; estimatedAcv: number | null }>;
-  acvChanges: Array<{ key: string; summary: string; oldAcv: number | null; newAcv: number | null }>;
-  dateChanges: Array<{ key: string; summary: string; field: string; oldDate: string | null; newDate: string | null }>;
-  snapshotDate: string;
-}): string {
-  const lines: string[] = [];
-  const snapLabel = new Date(diff.snapshotDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  lines.push(`:bar_chart: *Experiment Roadmap — Week-over-Week Changes* (vs. ${snapLabel})`);
-  lines.push("");
-
-  if (diff.added.length > 0) {
-    lines.push(`*:heavy_plus_sign: Added (${diff.added.length})*`);
-    for (const e of diff.added) {
-      const jiraUrl = (e as { url?: string }).url || `https://jira.tinyspeck.com/browse/${e.key}`;
-      const acv = e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : "";
-      lines.push(`    • <${jiraUrl}|${e.key}> ${e.summary}${acv}`);
-    }
-    lines.push("");
-  }
-
-  if (diff.dropped.length > 0) {
-    lines.push(`*:heavy_minus_sign: Dropped (${diff.dropped.length})*`);
-    for (const e of diff.dropped) {
-      const acv = e.estimatedAcv ? ` | Est. ACV: ${formatAcv(e.estimatedAcv)}` : "";
-      lines.push(`    • <https://jira.tinyspeck.com/browse/${e.key}|${e.key}> ${e.summary}${acv}`);
-    }
-    lines.push("");
-  }
-
-  if (diff.acvChanges.length > 0) {
-    lines.push(`*:chart_with_upwards_trend: ACV Adjustments (${diff.acvChanges.length})*`);
-    for (const c of diff.acvChanges) {
-      const oldVal = c.oldAcv !== null ? formatAcv(c.oldAcv) : "none";
-      const newVal = c.newAcv !== null ? formatAcv(c.newAcv) : "none";
-      lines.push(`    • <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary}: ${oldVal} → ${newVal}`);
-    }
-    lines.push("");
-  }
-
-  if (diff.dateChanges.length > 0) {
-    lines.push(`*:calendar: Date Changes (${diff.dateChanges.length})*`);
-    for (const c of diff.dateChanges) {
-      const label = c.field === "experimentStartDate" ? "Start" : "End";
-      const oldVal = c.oldDate ? formatShortDate(c.oldDate) : "—";
-      const newVal = c.newDate ? formatShortDate(c.newDate) : "—";
-      lines.push(`    • <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary} (${label}): ${oldVal} → ${newVal}`);
-    }
-    lines.push("");
-  }
-
-  return lines.join("\n").trimEnd();
-}
-
 // --- Collision Types ---
 
 interface CollisionExperiment {
@@ -337,6 +280,7 @@ export function ExperimentDigest() {
 
   // DRI overrides
   const [driOverrides, setDriOverrides] = useState<Record<string, string>>({});
+  const [editingDri, setEditingDri] = useState<Set<string>>(new Set());
 
   // WoW snapshot state
   interface SnapshotExp {
@@ -361,9 +305,14 @@ export function ExperimentDigest() {
   }
   const [wowDiff, setWowDiff] = useState<WowDiff | null>(null);
   const [wowExpanded, setWowExpanded] = useState(true);
-  const [availableSnapshots, setAvailableSnapshots] = useState<string[]>([]);
-  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const snapshotSavedFor = useRef<string>("");
+  const [availableSnapshots, setAvailableSnapshots] = useState<string[]>([]);
+  const [selectedSnapshotDate, setSelectedSnapshotDate] = useState<string>("");
+  const [wowSending, setWowSending] = useState(false);
+  const [wowSent, setWowSent] = useState(false);
+  const [wowSendError, setWowSendError] = useState<string | null>(null);
+  const [wowPreview, setWowPreview] = useState(false);
+  const [wowMessage, setWowMessage] = useState("");
 
   // Slack user lookup
   const [candidateMap, setCandidateMap] = useState<Record<string, SlackCandidate[]>>({});
@@ -371,7 +320,7 @@ export function ExperimentDigest() {
   const [lookingUpUsers, setLookingUpUsers] = useState(false);
 
   // Preview/send state — "weekly" or "monthly" or null
-  const [previewMode, setPreviewMode] = useState<"weekly" | "monthly" | "wow" | null>(null);
+  const [previewMode, setPreviewMode] = useState<"weekly" | "monthly" | null>(null);
   const [message, setMessage] = useState("");
 
   // Channel picker
@@ -453,18 +402,18 @@ export function ExperimentDigest() {
 
   }, []);
 
-  // Compute diff from a snapshot
-  const computeDiff = useCallback((prev: { date: string; experiments: SnapshotExp[] }) => {
+  // Compute diff between current roadmap and a snapshot
+  const computeDiff = useCallback((prev: { date: string; experiments: SnapshotExp[] }, roadmap: DigestExperiment[]): WowDiff => {
     const prevMap = new Map(prev.experiments.map((e) => [e.key, e]));
-    const currMap = new Map(sections.roadmap.map((e) => [e.key, e]));
+    const currMap = new Map(roadmap.map((e) => [e.key, e]));
 
-    const added = sections.roadmap.filter((e) => !prevMap.has(e.key));
+    const added = roadmap.filter((e) => !prevMap.has(e.key));
     const dropped = prev.experiments.filter((e) => !currMap.has(e.key));
 
     const acvChanges: WowDiff["acvChanges"] = [];
     const dateChanges: WowDiff["dateChanges"] = [];
 
-    for (const curr of sections.roadmap) {
+    for (const curr of roadmap) {
       const old = prevMap.get(curr.key);
       if (!old) continue;
       if ((old.estimatedAcv ?? null) !== (curr.estimatedAcv ?? null)) {
@@ -478,28 +427,30 @@ export function ExperimentDigest() {
       }
     }
 
-    setWowDiff({ added, dropped, acvChanges, dateChanges, snapshotDate: prev.date });
-  }, [sections.roadmap]);
+    return { added, dropped, acvChanges, dateChanges, snapshotDate: prev.date };
+  }, []);
 
-  // WoW diff: fetch previous snapshot, compute diff, save current snapshot
+  // Fetch available snapshot dates and load default diff
   useEffect(() => {
     if (sections.roadmap.length === 0 || !dates) return;
 
     const today = new Date().toISOString().split("T")[0];
 
-    // Fetch default snapshot (most recent before today)
+    // Fetch default comparison snapshot (API returns availableDates alongside)
     fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}`)
       .then((r) => r.json())
       .then((data) => {
-        setAvailableSnapshots(data.availableDates || []);
+        const pastDates = (data.availableDates as string[]) || [];
+        setAvailableSnapshots(pastDates);
+        if (!selectedSnapshotDate || !pastDates.includes(selectedSnapshotDate)) {
+          setSelectedSnapshotDate(pastDates[0] || "");
+        }
 
         const prev = data.snapshot as { date: string; experiments: SnapshotExp[] } | null;
         if (prev) {
-          setSelectedSnapshot(prev.date);
-          computeDiff(prev);
+          setWowDiff(computeDiff(prev, sections.roadmap));
         } else {
           setWowDiff(null);
-          setSelectedSnapshot(null);
         }
 
         // Save today's snapshot (once per month toggle per session)
@@ -528,24 +479,21 @@ export function ExperimentDigest() {
       .catch(() => {});
   }, [sections.roadmap, dates, roadmapMonth, computeDiff]);
 
-  // Re-fetch when user selects a different snapshot
+  // Re-compute diff when user changes comparison date
   useEffect(() => {
-    if (!selectedSnapshot || sections.roadmap.length === 0) return;
-
-    fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}&date=${selectedSnapshot}`)
+    if (!selectedSnapshotDate || sections.roadmap.length === 0) return;
+    fetch(`/api/experiment-digest/snapshots?month=${roadmapMonth}&date=${selectedSnapshotDate}`)
       .then((r) => r.json())
       .then((data) => {
         const prev = data.snapshot as { date: string; experiments: SnapshotExp[] } | null;
         if (prev) {
-          computeDiff(prev);
+          setWowDiff(computeDiff(prev, sections.roadmap));
         } else {
           setWowDiff(null);
         }
       })
       .catch(() => {});
-    // Only re-run when selectedSnapshot changes manually, not on initial load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSnapshot]);
+  }, [selectedSnapshotDate, sections.roadmap, roadmapMonth, computeDiff]);
 
   // Fetch collision calendar data (re-fetches when month changes)
   useEffect(() => {
@@ -650,12 +598,27 @@ export function ExperimentDigest() {
     }
   };
 
+  // Search for a single name and populate candidates
+  const searchSlackUser = useCallback(async (name: string) => {
+    if (!name.trim()) return;
+    try {
+      const res = await fetch(
+        `/api/slack/lookup-users?names=${encodeURIComponent(name.trim())}`
+      );
+      const data = await res.json();
+      const newCandidates: Record<string, SlackCandidate[]> = data.candidates || {};
+      setCandidateMap((prev) => ({ ...prev, ...newCandidates }));
+      // Auto-select if exactly one match
+      const candidates = newCandidates[name.trim()] || [];
+      if (candidates.length === 1) {
+        setUserMap((prev) => ({ ...prev, [name.trim()]: candidates[0] }));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const [driError, setDriError] = useState<string | null>(null);
 
   const handlePreview = async (mode: "weekly" | "monthly") => {
-    const freshUsers = await lookupUsers(experiments);
-    // Merge with existing userMap since lookupUsers returns only newly resolved
-    const resolvedUsers = { ...userMap, ...freshUsers };
     setDriError(null);
 
     // Warn about unresolved DRIs but don't block preview
@@ -668,7 +631,7 @@ export function ExperimentDigest() {
       for (const exp of sections[sKey]) {
         if (!selections[sKey].has(exp.key)) continue;
         const driName = driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "";
-        if (!driName || !resolvedUsers[driName]) {
+        if (!driName || !userMap[driName]) {
           missing.push(exp.key);
         }
       }
@@ -688,12 +651,10 @@ export function ExperimentDigest() {
     if (!previewMode || !dates) return;
     if (previewMode === "weekly") {
       setMessage(buildSlackMessage(sections, selections, userMap, driOverrides, dates, monthlyMetrics));
-    } else if (previewMode === "wow") {
-      if (wowDiff) setMessage(buildWowSlackMessage(wowDiff));
     } else {
       setMessage(buildMonthlyMessage(sections.roadmap, selections.roadmap, sections.roadmapGad, selections.roadmapGad, userMap, driOverrides, dates, roadmapMonth));
     }
-  }, [previewMode, sections, selections, userMap, driOverrides, dates, monthlyMetrics, roadmapMonth, wowDiff]);
+  }, [previewMode, sections, selections, userMap, driOverrides, dates, monthlyMetrics, roadmapMonth]);
 
   // Channel search
   const searchChannels = useCallback(async (q: string) => {
@@ -915,7 +876,8 @@ export function ExperimentDigest() {
                     <span>{acvLabel} ACV: {exp[acvField] !== null ? formatAcv(exp[acvField] || 0) : "'Unknown'"}</span>
                     <span className="inline-flex items-center gap-1">
                       {(() => {
-                        const driName = driOverrides[exp.key] ?? exp.experimentDri[0]?.displayName ?? "";
+                        const jiraDri = exp.experimentDri[0]?.displayName ?? "";
+                        const driName = driOverrides[exp.key] ?? jiraDri;
                         const candidates = driName ? (candidateMap[driName] || []) : [];
                         const selected = driName ? userMap[driName] : null;
 
@@ -930,7 +892,10 @@ export function ExperimentDigest() {
                                 value={selected?.slackId || ""}
                                 onChange={(e) => {
                                   e.stopPropagation();
-                                  if (driName) selectSlackUser(driName, e.target.value);
+                                  if (driName) {
+                                    selectSlackUser(driName, e.target.value);
+                                    setEditingDri((prev) => { const next = new Set(prev); next.delete(exp.key); return next; });
+                                  }
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 className="border border-gray-200 rounded px-1 py-0 text-xs bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-48"
@@ -942,17 +907,45 @@ export function ExperimentDigest() {
                                   </option>
                                 ))}
                               </select>
+                            ) : selected && !editingDri.has(exp.key) ? (
+                              <span
+                                className="text-gray-700 cursor-pointer hover:underline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingDri((prev) => new Set(prev).add(exp.key));
+                                  setDriOverrides((prev) => ({ ...prev, [exp.key]: selected.displayName }));
+                                }}
+                                title="Click to edit"
+                              >
+                                {selected.displayName}
+                              </span>
                             ) : (
                               <input
                                 type="text"
-                                value={driName || "'Unknown'"}
+                                value={driOverrides[exp.key] ?? jiraDri}
                                 onChange={(e) => {
                                   e.stopPropagation();
                                   setDriOverrides((prev) => ({ ...prev, [exp.key]: e.target.value }));
                                 }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    const val = (e.target as HTMLInputElement).value.trim();
+                                    if (val) {
+                                      searchSlackUser(val);
+                                      setEditingDri((prev) => { const next = new Set(prev); next.delete(exp.key); return next; });
+                                    }
+                                  }
+                                  if (e.key === "Escape") {
+                                    e.stopPropagation();
+                                    setEditingDri((prev) => { const next = new Set(prev); next.delete(exp.key); return next; });
+                                  }
+                                }}
+                                autoFocus={editingDri.has(exp.key)}
                                 onClick={(e) => e.stopPropagation()}
-                                placeholder="Slack lookup name"
-                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-32 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                placeholder="Type name, press Enter"
+                                className="border border-gray-200 rounded px-1.5 py-0 text-xs w-40 bg-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
                               />
                             )}
                           </>
@@ -1278,41 +1271,28 @@ export function ExperimentDigest() {
           {/* Week-over-Week Changes */}
           {wowDiff && (wowDiff.added.length > 0 || wowDiff.dropped.length > 0 || wowDiff.acvChanges.length > 0 || wowDiff.dateChanges.length > 0) && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
-              <div className="px-4 py-2.5 flex items-center justify-between">
-                <button
-                  onClick={() => setWowExpanded((v) => !v)}
-                  className="flex items-center gap-2 text-left"
-                >
-                  <span className="text-sm font-semibold text-amber-800">
-                    Week-over-Week Changes
-                  </span>
-                  <span className="text-amber-600 text-xs">{wowExpanded ? "Hide" : "Show"}</span>
-                </button>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-amber-600">vs.</span>
+              <button
+                onClick={() => setWowExpanded((v) => !v)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left"
+              >
+                <span className="text-sm font-semibold text-amber-800 inline-flex items-center gap-2">
+                  Week-over-Week Changes
+                  <span className="text-xs font-normal text-amber-600">vs.</span>
                   <select
-                    value={selectedSnapshot || ""}
-                    onChange={(e) => setSelectedSnapshot(e.target.value)}
-                    className="text-xs border border-amber-300 rounded px-1.5 py-0.5 bg-white text-amber-800 cursor-pointer"
+                    value={selectedSnapshotDate}
+                    onChange={(e) => { e.stopPropagation(); setSelectedSnapshotDate(e.target.value); setWowSent(false); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs border border-amber-300 rounded px-1.5 py-0.5 bg-white text-amber-800 focus:ring-2 focus:ring-amber-400 focus:outline-none"
                   >
                     {availableSnapshots.map((d) => (
                       <option key={d} value={d}>
-                        {new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                       </option>
                     ))}
                   </select>
-                  <button
-                    onClick={() => {
-                      setSent(false);
-                      setSendError(null);
-                      setPreviewMode("wow");
-                    }}
-                    className="text-xs px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-                  >
-                    Share to Slack
-                  </button>
-                </div>
-              </div>
+                </span>
+                <span className="text-amber-600 text-xs">{wowExpanded ? "Hide" : "Show"}</span>
+              </button>
               {wowExpanded && (
                 <div className="px-4 pb-3 space-y-3">
                   {wowDiff.added.length > 0 && (
@@ -1369,6 +1349,52 @@ export function ExperimentDigest() {
                       </ul>
                     </div>
                   )}
+                  <div className="pt-2 border-t border-amber-200 flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!wowDiff) return;
+                        const compDate = new Date(wowDiff.snapshotDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                        const lines: string[] = [];
+                        lines.push(`:chart_with_upwards_trend: *Roadmap Week-over-Week Changes* (vs. ${compDate})`);
+                        if (wowDiff.added.length > 0) {
+                          lines.push("");
+                          lines.push(`*:heavy_plus_sign: Added (${wowDiff.added.length})*`);
+                          for (const exp of wowDiff.added) {
+                            lines.push(`    \u2022 <https://jira.tinyspeck.com/browse/${exp.key}|${exp.key}> ${exp.summary}${exp.estimatedAcv ? ` | Est. ACV: ${formatAcv(exp.estimatedAcv)}` : ""}`);
+                          }
+                        }
+                        if (wowDiff.dropped.length > 0) {
+                          lines.push("");
+                          lines.push(`*:heavy_minus_sign: Dropped (${wowDiff.dropped.length})*`);
+                          for (const exp of wowDiff.dropped) {
+                            lines.push(`    \u2022 <https://jira.tinyspeck.com/browse/${exp.key}|${exp.key}> ${exp.summary}${exp.estimatedAcv ? ` | Est. ACV: ${formatAcv(exp.estimatedAcv)}` : ""}`);
+                          }
+                        }
+                        if (wowDiff.acvChanges.length > 0) {
+                          lines.push("");
+                          lines.push(`*:moneybag: ACV Adjustments (${wowDiff.acvChanges.length})*`);
+                          for (const c of wowDiff.acvChanges) {
+                            lines.push(`    \u2022 <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary}: ${c.oldAcv !== null ? formatAcv(c.oldAcv) : "none"} → ${c.newAcv !== null ? formatAcv(c.newAcv) : "none"}`);
+                          }
+                        }
+                        if (wowDiff.dateChanges.length > 0) {
+                          lines.push("");
+                          lines.push(`*:calendar: Date Changes (${wowDiff.dateChanges.length})*`);
+                          for (const c of wowDiff.dateChanges) {
+                            lines.push(`    \u2022 <https://jira.tinyspeck.com/browse/${c.key}|${c.key}> ${c.summary} (${c.field === "experimentStartDate" ? "Start" : "End"}): ${formatShortDate(c.oldDate)} → ${formatShortDate(c.newDate)}`);
+                          }
+                        }
+                        setWowMessage(lines.join("\n"));
+                        setWowSent(false);
+                        setWowSendError(null);
+                        setWowPreview(true);
+                      }}
+                      className="px-3 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700"
+                    >
+                      Preview & Send to Slack
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1398,12 +1424,10 @@ export function ExperimentDigest() {
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">
-                  {previewMode === "weekly" ? "Preview Weekly Digest" : previewMode === "wow" ? "Share WoW Changes" : "Preview Monthly Roadmap"}
+                  {previewMode === "weekly" ? "Preview Weekly Digest" : "Preview Monthly Roadmap"}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  {previewMode === "wow"
-                    ? `${(wowDiff?.added.length || 0) + (wowDiff?.dropped.length || 0) + (wowDiff?.acvChanges.length || 0) + (wowDiff?.dateChanges.length || 0)} changes`
-                    : previewMode === "weekly" ? `${weeklySelected} experiments selected` : `${selections.roadmap.size} experiments selected`}
+                  {previewMode === "weekly" ? weeklySelected : selections.roadmap.size} experiments selected
                 </p>
               </div>
               <button
@@ -1531,6 +1555,136 @@ export function ExperimentDigest() {
                   className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sending ? "Sending..." : "Post to Slack"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WoW Preview & Send Modal */}
+      {wowPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Week-over-Week Changes</h3>
+              <button onClick={() => setWowPreview(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="px-4 py-4 space-y-4 overflow-y-auto flex-1">
+              {/* Channel picker */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Channel</label>
+                {selectedChannel ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900">#{selectedChannel.name}</span>
+                    <button
+                      onClick={() => { setSelectedChannel(null); setChannelQuery(""); }}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={channelQuery}
+                      onChange={(e) => handleChannelQuery(e.target.value)}
+                      placeholder="Search for a channel..."
+                      className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    {searchingChannels && (
+                      <span className="absolute right-3 top-2.5 text-xs text-gray-400">searching...</span>
+                    )}
+                    {channels.length > 0 && (
+                      <ul className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                        {channels.map((ch) => (
+                          <li key={ch.id}>
+                            <button
+                              onClick={() => { setSelectedChannel(ch); setChannels([]); }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 transition-colors"
+                            >
+                              #{ch.name}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                {threadTs && (
+                  <p className="text-xs text-gray-500 mt-1">Replying in thread: <span className="font-mono">{threadTs}</span></p>
+                )}
+              </div>
+
+              {/* Editable message */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Message preview</label>
+                <textarea
+                  value={wowMessage}
+                  onChange={(e) => setWowMessage(e.target.value)}
+                  rows={16}
+                  className="w-full px-3 py-2 border rounded-md text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 resize-y"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {wowMessage.length} / 5000 characters
+                  {wowMessage.length > 5000 && (
+                    <span className="text-red-500 ml-1">(over limit)</span>
+                  )}
+                </p>
+              </div>
+
+              {wowSendError && (
+                <div className="rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                  {wowSendError}
+                </div>
+              )}
+
+              {wowSent && (
+                <div className="rounded bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+                  Message sent to #{selectedChannel?.name}
+                  {threadTs && " (in thread)"}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t flex items-center justify-end gap-2">
+              <button
+                onClick={() => setWowPreview(false)}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+              >
+                {wowSent ? "Close" : "Cancel"}
+              </button>
+              {!wowSent && (
+                <button
+                  onClick={async () => {
+                    if (!selectedChannel || !wowMessage) return;
+                    setWowSending(true);
+                    setWowSendError(null);
+                    try {
+                      const body: Record<string, string> = { channelId: selectedChannel.id, message: wowMessage };
+                      if (threadTs.trim()) body.thread_ts = threadTs.trim();
+                      const res = await fetch("/api/slack/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                      });
+                      const result = await res.json();
+                      if (!res.ok) {
+                        setWowSendError(result.error || "Failed to send");
+                      } else {
+                        setWowSent(true);
+                      }
+                    } catch {
+                      setWowSendError("Failed to send message");
+                    } finally {
+                      setWowSending(false);
+                    }
+                  }}
+                  disabled={!selectedChannel || !wowMessage || wowSending || wowMessage.length > 5000}
+                  className="px-4 py-1.5 text-sm font-medium text-white bg-amber-600 rounded-md hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {wowSending ? "Sending..." : "Post to Slack"}
                 </button>
               )}
             </div>

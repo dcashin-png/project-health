@@ -1,0 +1,27 @@
+{
+  "asOf": "03/24/2026",
+  "metrics": [
+    {"section": "Funnel", "metric": "Unique Daily Visitors", "qtd": 45248694, "vsPacing": "-", "yoy": 0.21523786288788482, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Funnel", "metric": "Created Work Teams", "qtd": 514650, "vsPacing": "-", "yoy": 0.9233500261604006, "cohortedCvr": "1.1% +0.4PP", "yoyPP": "", "nptPct": ""},
+    {"section": "Funnel", "metric": "CWT+1 (in 14d)", "qtd": 80094, "vsPacing": "-", "yoy": -0.0013839536188516854, "cohortedCvr": "14.7% -15.2PP", "yoyPP": "", "nptPct": ""},
+    {"section": "Funnel", "metric": "Activated/Returned Work (in 14d)", "qtd": 27455, "vsPacing": "-", "yoy": -0.11039466009979915, "cohortedCvr": "5.1% -6.4PP", "yoyPP": "", "nptPct": ""},
+    {"section": "Funnel", "metric": "Brand New Paid Work Teams (in 40d)", "qtd": 8749, "vsPacing": "-", "yoy": 0.26485470579731096, "cohortedCvr": "1.9% -0.9PP", "yoyPP": "", "nptPct": "25% +3PP"},
+    {"section": "NPT", "metric": "Brand New Paid Non-Work Teams (in 40d)", "qtd": 2329, "vsPacing": "", "yoy": 0.08375988832014891, "cohortedCvr": "", "yoyPP": "", "nptPct": "7% -0PP"},
+    {"section": "NPT", "metric": "Brand New Paid Teams (> 40d)", "qtd": 9715, "vsPacing": "-", "yoy": 0.01951936194773851, "cohortedCvr": "", "yoyPP": "", "nptPct": "28% -3PP"},
+    {"section": "NPT", "metric": "Resurrected Paid Teams", "qtd": 14334, "vsPacing": "-", "yoy": 0.1268867924528303, "cohortedCvr": "", "yoyPP": "", "nptPct": "41% +0PP"},
+    {"section": "New ACV Inputs", "metric": "Total New Paid Teams", "qtd": 35127, "vsPacing": "-", "yoy": 0.12173079993613278, "cohortedCvr": "", "yoyPP": "", "nptPct": 1},
+    {"section": "New ACV Inputs", "metric": "New Price per Seat", "qtd": 93.4066, "vsPacing": "-", "yoy": 0.07797078836335425, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "New ACV Inputs", "metric": "New Seats per Team", "qtd": 5.9244, "vsPacing": "-", "yoy": -0.06029026885557931, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "New ACV Inputs", "metric": "New ACV", "qtd": 19438511.15015208, "vsPacing": 0.9859645322317362, "yoy": 0.1362904615759244, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Exp. ACV Inputs", "metric": "PPS Expansion **", "qtd": 3518175.67, "vsPacing": "-", "yoy": 0.7860008042897171, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Exp. ACV Inputs", "metric": "Seat Expansion", "qtd": -7472.68, "vsPacing": "-", "yoy": -1.001439995280205, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Exp. ACV Inputs", "metric": "Transition Expansion", "qtd": 32152.74, "vsPacing": "-", "yoy": "", "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Exp. ACV Inputs", "metric": "Expansion ACV", "qtd": 3542851.02, "vsPacing": 0.5974649541265137, "yoy": -0.5038089717933832, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Exp. ACV Inputs", "metric": "Total ACV", "qtd": 22981362.17015208, "vsPacing": 0.9177932604768968, "yoy": -0.052201080655800425, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Attrition Inputs", "metric": "MRR Churn - Coming Soon", "qtd": "-", "vsPacing": "-", "yoy": "-%", "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Attrition Inputs", "metric": "True Cancels - Coming Soon", "qtd": "-", "vsPacing": "-", "yoy": "-%", "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Attrition Inputs", "metric": "Attrition", "qtd": 16647979.56, "vsPacing": 1.0553825266441172, "yoy": 0.11744565302971854, "cohortedCvr": "", "yoyPP": "", "nptPct": ""},
+    {"section": "Attrition Inputs", "metric": "NNAOV", "qtd": 6333539.82, "vsPacing": 0.6514181580824099, "yoy": -0.322536348833105, "cohortedCvr": "", "yoyPP": "", "nptPct": ""}
+  ],
+  "_fetchedAt": "2026-03-30T20:00:00.000Z"
+}
